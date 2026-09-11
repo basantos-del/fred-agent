@@ -5,6 +5,7 @@ st.set_page_config(page_title="Fred", layout="wide")
 from agent import run_agent_turn, SYSTEM_PROMPT
 from agent_claude import run_agent_turn_claude
 from tools import get_portfolio_context, log_portfolio_snapshot, get_portfolio_history
+from eval import run_eval_suite, GOLDEN_SET
 
 st.title("Hi,Bernardo! Let's get your finances up and running")
 
@@ -13,7 +14,7 @@ def get_cached_portfolio_context():
     return get_portfolio_context()
 
 
-tab_chat, tab_dashboard, tab_compare = st.tabs(["Chat", "Dashboard", "Model Comparison"])
+tab_chat, tab_dashboard, tab_compare, tab_eval = st.tabs(["Chat", "Dashboard", "Model Comparison", "Eval"])
 
 with tab_chat:
     if "messages" not in st.session_state:
@@ -165,3 +166,28 @@ with tab_compare:
                 st.markdown(claude_answer)
                 if claude_tools:
                     st.caption(f"Tools used: {', '.join(claude_tools)}")
+
+with tab_eval:
+    st.subheader("Eval Suite")
+    st.caption(f"{len(GOLDEN_SET)} test cases, judged by Claude against specific criteria.")
+
+    if st.button("Run Eval Suite"):
+        with st.spinner("Running eval suite — this calls the agent and a judge model for each case..."):
+            results = st.session_state.get("eval_results")
+            results = run_eval_suite()
+            st.session_state["eval_results"] = results
+
+    if "eval_results" in st.session_state:
+        results = st.session_state["eval_results"]
+        passed = sum(1 for r in results if r["verdict"] == "PASS")
+        st.metric("Pass Rate", f"{passed}/{len(results)}")
+
+        for r in results:
+            icon = "✅" if r["verdict"] == "PASS" else "❌"
+            with st.expander(f"{icon} {r['id']} ({r['category']})"):
+                st.write(f"**Question:** {r['question']}")
+                st.write(f"**Fred's answer:**")
+                st.markdown(r["answer"])
+                st.write(f"**Tools used:** {', '.join(r['used_tools']) if r['used_tools'] else 'none'}")
+                st.write(f"**Judge verdict:** {r['verdict']}")
+                st.write(f"**Judge reasoning:** {r['reasoning']}")
