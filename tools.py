@@ -29,6 +29,7 @@ chroma_client = chromadb.PersistentClient(path="./chroma_db")
 filings_collection = chroma_client.get_or_create_collection(name="filings")
 
 SEC_HEADERS = {"User-Agent": "Bernardo Santos albasantos.bernardo@gmail.com"}
+MAGNIFICENT_7 = {"AAPL", "MSFT", "GOOGL", "GOOG", "AMZN", "META", "NVDA", "TSLA"}
 
 def get_sentiment(headline, summary):
     prompt = f"""Headline: {headline}
@@ -45,6 +46,13 @@ Reason: <short reason>"""
         messages=[{"role": "user", "content": prompt}]
     )
     return response.choices[0].message.content
+
+def get_industry(ticker):
+    url = "https://finnhub.io/api/v1/stock/profile2"
+    params = {"symbol": ticker, "token": finnhub_key}
+    response = requests.get(url, params=params)
+    data = response.json()
+    return data.get("finnhubIndustry")
 
 def get_stock_price(ticker):
     url = "https://finnhub.io/api/v1/quote"
@@ -161,14 +169,31 @@ def get_portfolio_context():
     total = sum(h["value_eur"] for h in holdings)
 
     by_exposure_value = {}
+    by_industry_value = {}
+    mag7_value = 0
+
     for h in holdings:
         by_exposure_value[h["exposure_category"]] = by_exposure_value.get(h["exposure_category"], 0) + h["value_eur"]
 
+        if h["ticker"]:
+            industry = get_industry(h["ticker"])
+            h["industry"] = industry
+            if industry:
+                by_industry_value[industry] = by_industry_value.get(industry, 0) + h["value_eur"]
+
+            if h["ticker"] in MAGNIFICENT_7:
+                mag7_value += h["value_eur"]
+
     allocation = {k: round(v / total * 100, 1) for k, v in by_exposure_value.items()}
+    industry_allocation = {k: round(v / total * 100, 1) for k, v in by_industry_value.items()}
+    mag7_pct = round(mag7_value / total * 100, 1) if total else 0
+
     return {
         "total_value_eur": total,
         "allocation_by_exposure": allocation,
         "value_by_exposure": by_exposure_value,
+        "allocation_by_industry": industry_allocation,
+        "magnificent_7_pct": mag7_pct,
         "holdings": holdings
     }
 

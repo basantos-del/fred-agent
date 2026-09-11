@@ -13,7 +13,6 @@ st.title("Hi,Bernardo! Let's get your finances up and running")
 def get_cached_portfolio_context():
     return get_portfolio_context()
 
-
 tab_chat, tab_dashboard, tab_compare, tab_eval = st.tabs(["Chat", "Dashboard", "Model Comparison", "Eval"])
 
 with tab_chat:
@@ -90,6 +89,13 @@ with tab_dashboard:
         if pct >= 40:
             st.warning(f"⚠️ Concentration risk: **{category}** is **{pct}%** of your portfolio.")
 
+    for industry, pct in context["allocation_by_industry"].items():
+        if pct >= 40:
+            st.warning(f"⚠️ Sector concentration risk: **{industry}** is **{pct}%** of your portfolio.")
+
+    if context["magnificent_7_pct"] >= 40:
+        st.warning(f"⚠️ Magnificent 7 concentration: **{context['magnificent_7_pct']}%** of your portfolio is in Magnificent 7 stocks.")
+    
     st.metric("Total Value", f"€{context['total_value_eur']:,.2f}")
 
     st.write("**Allocation by Exposure**")
