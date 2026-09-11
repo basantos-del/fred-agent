@@ -5,6 +5,7 @@ import gspread #connection to portfolio
 import voyageai #embedding_model
 import chromadb #vector_db
 import time
+import re
 
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
@@ -404,7 +405,6 @@ def fetch_raw_news(ticker, days_back=7):
 
 news_collection = chroma_client.get_or_create_collection(name="news")
 
-
 def ingest_news(ticker, days_back=7):
     articles = fetch_raw_news(ticker, days_back=days_back)
 
@@ -412,20 +412,30 @@ def ingest_news(ticker, days_back=7):
         print(f"No news articles found for {ticker} in the last {days_back} days.", flush=True)
         return
 
+    existing = news_collection.get(where={"ticker": ticker})
+    existing_ids = set(existing["ids"])
+
     ids, documents, metadatas = [], [], []
     for i, a in enumerate(articles):
+        article_id = f"{ticker}_news_{i}"
+        if article_id in existing_ids:
+            continue
+
         headline = a["headline"]
         summary = a.get("summary", "")
         sentiment = get_sentiment(headline, summary)
 
         documents.append(f"{headline}. {summary}. {sentiment}")
-        ids.append(f"{ticker}_news_{i}")
+        ids.append(article_id)
         metadatas.append({
             "ticker": ticker,
             "date": datetime.fromtimestamp(a["datetime"]).strftime("%Y-%m-%d"),
             "url": a["url"],
             "source": a["source"]
         })
+
+    if not documents:
+        return
 
     embeddings = embed_chunks(documents)
     news_collection.upsert(ids=ids, documents=documents, embeddings=embeddings, metadatas=metadatas)
@@ -481,8 +491,15 @@ def call_groq_with_retry(client, **kwargs):
         try:
             return client.chat.completions.create(**kwargs)
         except RateLimitError as e:
-            print(f"Groq rate limited, waiting 30s... ({e})", flush=True)
-            time.sleep(30)
+            wait_time = 30
+            match = re.search(r"try again in (?:(\d+)m)?([\d.]+)s", str(e))
+            if match:
+                minutes = int(match.group(1)) if match.group(1) else 0
+                seconds = float(match.group(2))
+                wait_time = minutes * 60 + seconds + 2
+
+            print(f"Groq rate limited, waiting {wait_time:.0f}s... ({e})", flush=True)
+            time.sleep(wait_time)
 
 def get_exchange_rate(from_currency="USD", to_currency="EUR"):
     url = "https://finnhub.io/api/v1/forex/rates"
