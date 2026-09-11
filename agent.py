@@ -2,7 +2,7 @@ import os
 import json
 from dotenv import load_dotenv
 from groq import Groq
-from tools import tool_functions, tools
+from tools import tool_functions, tools, call_groq_with_retry
 
 load_dotenv()
 api_key = os.environ["GROQ_API_KEY"]
@@ -41,7 +41,8 @@ and apply these rules:
 
 def run_agent_turn(messages):
     while True:
-        response = client.chat.completions.create(
+        response = call_groq_with_retry(
+	    client,
             model="openai/gpt-oss-20b",
             messages=messages,
             tools=tools

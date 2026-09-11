@@ -11,6 +11,7 @@ from dotenv import load_dotenv
 from bs4 import BeautifulSoup
 from voyageai.error import RateLimitError
 from groq import Groq
+from groq import RateLimitError
 
 load_dotenv()
 finnhub_key = os.environ["FINNHUB_API_KEY"]
@@ -43,7 +44,8 @@ and give one short reason (max 15 words). Respond in exactly this format:
 Sentiment: <Positive/Negative/Neutral>
 Reason: <short reason>"""
 
-    response = groq_client.chat.completions.create(
+    response = call_groq_with_retry(
+        groq_client,
         model="openai/gpt-oss-20b",
         messages=[{"role": "user", "content": prompt}]
     )
@@ -344,6 +346,14 @@ def evaluate_recommendation(ticker):
         "peer_comparison": get_peer_average_ratios(ticker),
         "portfolio_context": get_portfolio_context()
     }
+
+def call_groq_with_retry(client, **kwargs):
+    while True:
+        try:
+            return client.chat.completions.create(**kwargs)
+        except RateLimitError as e:
+            print(f"Groq rate limited, waiting 30s... ({e})")
+            time.sleep(30)
 
 tool_functions = {
     "get_stock_price": get_stock_price,
