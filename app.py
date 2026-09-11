@@ -5,7 +5,7 @@ st.set_page_config(page_title="Fred", layout="wide")
 from agent import run_agent_turn, SYSTEM_PROMPT
 from agent_claude import run_agent_turn_claude
 from tools import get_portfolio_context, log_portfolio_snapshot, get_portfolio_history
-from eval import run_eval_suite, GOLDEN_SET
+from eval import run_single_eval_case, GOLDEN_SET
 
 st.title("Hi,Bernardo! Let's get your finances up and running")
 
@@ -172,10 +172,16 @@ with tab_eval:
     st.caption(f"{len(GOLDEN_SET)} test cases, judged by Claude against specific criteria.")
 
     if st.button("Run Eval Suite"):
-        with st.spinner("Running eval suite — this calls the agent and a judge model for each case..."):
-            results = st.session_state.get("eval_results")
-            results = run_eval_suite()
-            st.session_state["eval_results"] = results
+        results = []
+        progress_placeholder = st.empty()
+
+        for i, case in enumerate(GOLDEN_SET):
+            progress_placeholder.info(f"Running case {i + 1}/{len(GOLDEN_SET)}: {case['id']}...")
+            result = run_single_eval_case(case)
+            results.append(result)
+
+        progress_placeholder.empty()
+        st.session_state["eval_results"] = results
 
     if "eval_results" in st.session_state:
         results = st.session_state["eval_results"]

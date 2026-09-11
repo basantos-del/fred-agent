@@ -62,31 +62,30 @@ REASONING: <one or two sentences explaining why>"""
     return verdict, reasoning
 
 
+def run_single_eval_case(case):
+    messages = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": case["question"]}
+    ]
+
+    try:
+        answer, used_tools = run_agent_turn(messages)
+    except Exception as e:
+        answer = f"Error running agent: {e}"
+        used_tools = []
+
+    verdict, reasoning = judge_response(case["question"], case["criteria"], answer)
+
+    return {
+        "id": case["id"],
+        "category": case["category"],
+        "question": case["question"],
+        "answer": answer,
+        "used_tools": used_tools,
+        "verdict": verdict,
+        "reasoning": reasoning
+    }
+
+
 def run_eval_suite():
-    results = []
-
-    for case in GOLDEN_SET:
-        messages = [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": case["question"]}
-        ]
-
-        try:
-            answer, used_tools = run_agent_turn(messages)
-        except Exception as e:
-            answer = f"Error running agent: {e}"
-            used_tools = []
-
-        verdict, reasoning = judge_response(case["question"], case["criteria"], answer)
-
-        results.append({
-            "id": case["id"],
-            "category": case["category"],
-            "question": case["question"],
-            "answer": answer,
-            "used_tools": used_tools,
-            "verdict": verdict,
-            "reasoning": reasoning
-        })
-
-    return results
+    return [run_single_eval_case(case) for case in GOLDEN_SET]
