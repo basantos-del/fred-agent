@@ -38,7 +38,7 @@ write a bull or bear case — just gather facts using tools. Never call the exac
 same tool with the exact same arguments twice. As soon as you have enough data,
 STOP calling tools and respond with a one-line summary of what you found."""
 
-def run_researcher(question, max_iterations=5):
+def run_researcher(question, max_iterations=4):
     messages = [
         {"role": "system", "content": RESEARCHER_SYSTEM_PROMPT},
         {"role": "user", "content": question}
@@ -46,12 +46,14 @@ def run_researcher(question, max_iterations=5):
     gathered = []
     already_called = {}
 
-    for _ in range(max_iterations):
+    for i in range(max_iterations):
+        is_final_attempt = (i == max_iterations - 1)
+
         response = call_groq_with_retry(
             client,
             model="openai/gpt-oss-20b",
             messages=messages,
-            tools=tools,
+            tools=None if is_final_attempt else tools,
             temperature=0
         )
         message = response.choices[0].message
@@ -87,4 +89,4 @@ def run_researcher(question, max_iterations=5):
         else:
             return {"summary": message.content, "gathered_data": gathered}
 
-    return {"summary": "Reached max research iterations.", "gathered_data": gathered}
+    return {"summary": "Reached max research iterations without a clean stop.", "gathered_data": gathered}
