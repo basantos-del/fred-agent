@@ -69,7 +69,6 @@ with tab_chat:
                 with st.expander(f"Fred used {len(used_tools)} tool call(s)"):
                     for t in used_tools:
                         st.write(f"- `{t}`")
-
 with tab_dashboard:
     import pandas as pd
     import altair as alt
@@ -85,6 +84,7 @@ with tab_dashboard:
 
     history = get_cached_history(context["total_value_eur"])
 
+    # --- Concentration warning banners ---
     for category, pct in context["allocation_by_exposure"].items():
         if pct >= 40:
             st.warning(f"⚠️ Concentration risk: **{category}** is **{pct}%** of your portfolio.")
@@ -98,9 +98,21 @@ with tab_dashboard:
         with st.expander("See which holdings contribute to this"):
             for h in context["magnificent_7_lookthrough_detail"]:
                 st.write(f"- {h['holding']} (via {h['fund']}): €{h['value_eur']:,.2f}")
-    
+
+    # --- Always-shown breakdown, regardless of whether a banner fired ---
+    with st.expander("Full sector & Magnificent 7 breakdown (always shown)"):
+        st.write("**Sector allocation (including fund look-through):**")
+        for industry, pct in context["allocation_by_industry"].items():
+            st.write(f"- {industry}: {pct}%")
+
+        st.write(f"**Magnificent 7 (including fund look-through): {context['magnificent_7_pct']}%**")
+        for h in context["magnificent_7_lookthrough_detail"]:
+            st.write(f"  - {h['holding']} (via {h['fund']}): €{h['value_eur']:,.2f}")
+
+    # --- Headline number ---
     st.metric("Total Value", f"€{context['total_value_eur']:,.2f}")
 
+    # --- Per-category metric cards ---
     st.write("**Allocation by Exposure**")
     cols = st.columns(len(context["value_by_exposure"]))
     for col, (category, value) in zip(cols, context["value_by_exposure"].items()):
@@ -108,6 +120,7 @@ with tab_dashboard:
         with col:
             st.metric(category, f"€{value:,.0f}", f"{pct}%")
 
+    # --- Donut chart ---
     chart_df = pd.DataFrame({
         "category": list(context["value_by_exposure"].keys()),
         "value": list(context["value_by_exposure"].values())
@@ -119,6 +132,7 @@ with tab_dashboard:
     ).properties(height=350)
     st.altair_chart(donut, use_container_width=True)
 
+    # --- Portfolio value over time ---
     st.write("**Portfolio Value Over Time**")
     if len(history) >= 2:
         history_df = pd.DataFrame(history)
@@ -126,6 +140,7 @@ with tab_dashboard:
     else:
         st.caption("History will build up as you use the dashboard over time (logs once per day).")
 
+    # --- Holdings table ---
     st.write("**Holdings**")
     holdings_df = pd.DataFrame(context["holdings"]).sort_values("value_eur", ascending=False)
     holdings_df["ticker"] = holdings_df["ticker"].fillna("—")
