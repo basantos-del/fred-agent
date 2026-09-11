@@ -1,4 +1,4 @@
-import os
+\import os
 import json
 import requests
 import gspread #connection to portfolio
@@ -480,12 +480,18 @@ def get_peer_average_ratios(ticker):
     return {"peers": peers, "peer_averages": averages}
 
 def evaluate_recommendation(ticker):
+    try:
+        exchange_rate = get_exchange_rate("USD", "EUR")
+    except Exception as e:
+        print(f"Warning: get_exchange_rate failed inside evaluate_recommendation: {e}", flush=True)
+        exchange_rate = None
+
     return {
         "ticker": ticker,
         "ratios": get_key_ratios(ticker),
         "peer_comparison": get_peer_average_ratios(ticker),
         "portfolio_context": get_portfolio_context(),
-        "usd_to_eur_rate": get_exchange_rate("USD", "EUR")
+        "usd_to_eur_rate": exchange_rate
     }
 
 def call_groq_with_retry(client, max_malformed_retries=3, **kwargs):
@@ -510,13 +516,29 @@ def call_groq_with_retry(client, max_malformed_retries=3, **kwargs):
             if malformed_attempts >= max_malformed_retries:
                 raise
             print(f"Groq generated malformed tool call, retrying ({malformed_attempts}/{max_malformed_retries})...", flush=True)
+def get_valid_params(function_name):
+    for t in tools:
+        if t["function"]["name"] == function_name:
+            return set(t["function"]["parameters"]["properties"].keys())
+    return None
+
+
+def filter_args_for_tool(function_name, args):
+    valid_params = get_valid_params(function_name)
+    if valid_params is None:
+        return args
+    return {k: v for k, v in args.items() if k in valid_params}
 
 def get_exchange_rate(from_currency="USD", to_currency="EUR"):
     url = "https://finnhub.io/api/v1/forex/rates"
     params = {"base": from_currency, "token": finnhub_key}
     response = requests.get(url, params=params)
     data = response.json()
-    return data["quote"].get(to_currency)
+    quote = data.get("quote")
+    if quote is None:
+        print(f"Warning: no exchange rate quote returned. Raw response: {data}", flush=True)
+        return None
+    return quote.get(to_currency)
 
 tool_functions = {
     "get_stock_price": get_stock_price,

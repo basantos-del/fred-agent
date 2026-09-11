@@ -2,7 +2,7 @@ import os
 import json
 from dotenv import load_dotenv
 from groq import Groq
-from tools import tool_functions, tools, call_groq_with_retry
+from tools import tool_functions, tools, call_groq_with_retry, filter_args_for_tool
 
 load_dotenv()
 api_key = os.environ["GROQ_API_KEY"]
@@ -67,6 +67,7 @@ def run_agent_turn(messages, max_iterations=10):
 
                 args = json.loads(tool_call.function.arguments)
                 args = {k: v for k, v in args.items() if k}
+		args = filter_args_for_tool(function_name, args)
 
                 print(f"Calling tool: {function_name}({args})", flush=True)
                 try:
