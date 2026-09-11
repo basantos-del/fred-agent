@@ -15,8 +15,14 @@ from groq import Groq
 load_dotenv()
 finnhub_key = os.environ["FINNHUB_API_KEY"]
 
-service_account_info = json.loads(os.environ["GOOGLE_SERVICE_ACCOUNT_JSON"])
+raw_value = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON", "")
+print(f"DEBUG: length of GOOGLE_SERVICE_ACCOUNT_JSON = {len(raw_value)}")
+print(f"DEBUG: first 30 chars = {raw_value[:30]!r}")
+print(f"DEBUG: last 30 chars = {raw_value[-30:]!r}")
+
+service_account_info = json.loads(raw_value)
 gc = gspread.service_account_from_dict(service_account_info)
+
 sheet = gc.open_by_key(os.environ["PORTFOLIO_SHEET_ID"])
 worksheet = sheet.worksheet("Portfolio")
 
