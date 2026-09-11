@@ -165,7 +165,6 @@ def parse_eur_amount(value_str):
     cleaned = value_str.replace("\xa0", "").replace("€", "").replace(",", ".").strip()
     return float(cleaned)
 
-
 def parse_percentage(value_str):
     cleaned = value_str.replace("%", "").replace(",", ".").strip()
     return float(cleaned) if cleaned else None
@@ -341,7 +340,7 @@ def _embed_with_retry(texts, input_type):
         try:
             return voyage_client.embed(texts, model="voyage-finance-2", input_type=input_type)
         except RateLimitError:
-            print("Rate limited, waiting 60s...")
+            print("Rate limited, waiting 60s...", flush=True)
             time.sleep(60)
 
 def embed_chunks(chunks, batch_size=20, delay=21):
@@ -380,7 +379,7 @@ def get_filing_context(ticker, question):
     existing = filings_collection.get(where={"ticker": ticker}, limit=1)
 
     if not existing["ids"]:
-        print(f"No filing stored for {ticker} yet — ingesting now, this will take a few minutes...")
+        print(f"No filing stored for {ticker} yet — ingesting now, this will take a few minutes...", flush=True)
         cik = get_cik(ticker)
         filing_url = get_latest_10k_url(cik)
         text = fetch_filing_text(filing_url)
@@ -410,7 +409,7 @@ def ingest_news(ticker, days_back=7):
     articles = fetch_raw_news(ticker, days_back=days_back)
 
     if not articles:
-        print(f"No news articles found for {ticker} in the last {days_back} days.")
+        print(f"No news articles found for {ticker} in the last {days_back} days.", flush=True)
         return
 
     ids, documents, metadatas = [], [], []
@@ -482,7 +481,7 @@ def call_groq_with_retry(client, **kwargs):
         try:
             return client.chat.completions.create(**kwargs)
         except RateLimitError as e:
-            print(f"Groq rate limited, waiting 30s... ({e})")
+            print(f"Groq rate limited, waiting 30s... ({e})", flush=True)
             time.sleep(30)
 
 def get_exchange_rate(from_currency="USD", to_currency="EUR"):
