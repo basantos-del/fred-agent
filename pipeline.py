@@ -38,6 +38,28 @@ write a bull or bear case — just gather facts using tools. Never call the exac
 same tool with the exact same arguments twice. As soon as you have enough data,
 STOP calling tools and respond with a one-line summary of what you found."""
 
+
+def summarize_gathered_data(question, gathered):
+    if not gathered:
+        return "No data was gathered."
+
+    data_str = json.dumps(gathered, indent=2)[:4000]
+    prompt = f"""Question: {question}
+
+Data gathered by tool calls:
+{data_str}
+
+Write a ONE-LINE summary of what data was gathered (not an analysis, not a recommendation)."""
+
+    response = call_groq_with_retry(
+        client,
+        model="openai/gpt-oss-20b",
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0
+    )
+    return response.choices[0].message.content
+
+
 def run_researcher(question, max_iterations=4):
     messages = [
         {"role": "system", "content": RESEARCHER_SYSTEM_PROMPT},
@@ -46,15 +68,13 @@ def run_researcher(question, max_iterations=4):
     gathered = []
     already_called = {}
 
-    for i in range(max_iterations):
-        is_final_attempt = (i == max_iterations - 1)
-
+    for _ in range(max_iterations):
         response = call_groq_with_retry(
             client,
             model="openai/gpt-oss-20b",
             messages=messages,
             tools=tools,
-            tool_choice="none" if is_final_attempt else "auto",
+            tool_choice="auto",
             temperature=0
         )
         message = response.choices[0].message
@@ -90,4 +110,5 @@ def run_researcher(question, max_iterations=4):
         else:
             return {"summary": message.content, "gathered_data": gathered}
 
-    return {"summary": "Reached max research iterations without a clean stop.", "gathered_data": gathered}
+    summary = summarize_gathered_data(question, gathered)
+    return {"summary": summary, "gathered_data": gathered}
