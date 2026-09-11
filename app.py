@@ -105,7 +105,7 @@ with tab_dashboard:
         color="category",
         tooltip=["category", "value"]
     ).properties(height=350)
-    st.altair_chart(donut, use_container_width=True)
+    st.altair_chart(donut, width='stretch')
 
     st.write("**Portfolio Value Over Time**")
     if len(history) >= 2:
@@ -118,8 +118,8 @@ with tab_dashboard:
     holdings_df = pd.DataFrame(context["holdings"]).sort_values("value_eur", ascending=False)
     holdings_df["ticker"] = holdings_df["ticker"].fillna("—")
     holdings_df["value_eur"] = holdings_df["value_eur"].apply(lambda v: f"€{v:,.2f}")
-    st.dataframe(holdings_df, use_container_width=True, hide_index=True)
-
+    st.dataframe(holdings_df, width='stretch', hide_index=True)
+    
     st.subheader("Concentration Alerts")
 
     alert_rows = []
@@ -134,7 +134,7 @@ with tab_dashboard:
 
     if alert_rows:
         st.warning(f"⚠️ {len(alert_rows)} concentration alert(s) — see table below.")
-        st.dataframe(pd.DataFrame(alert_rows), use_container_width=True, hide_index=True)
+        st.dataframe(pd.DataFrame(alert_rows), width='stretch', hide_index=True)
     else:
         st.success("✅ No concentration alerts — nothing currently exceeds the 40% threshold.")
 
@@ -144,14 +144,14 @@ with tab_dashboard:
         [{"Sector": k, "% of Portfolio": v} for k, v in context["allocation_by_industry"].items()]
     ).sort_values("% of Portfolio", ascending=False)
     st.write("**Sector allocation (including fund look-through):**")
-    st.dataframe(sector_df, use_container_width=True, hide_index=True)
+    st.dataframe(sector_df, widht='stretch', hide_index=True)
 
     st.write(f"**Magnificent 7 total: {context['magnificent_7_pct']}% of portfolio**")
     if context["magnificent_7_lookthrough_detail"]:
         mag7_df = pd.DataFrame(context["magnificent_7_lookthrough_detail"])
         mag7_df = mag7_df.rename(columns={"holding": "Holding", "fund": "Via Fund", "value_eur": "Value (EUR)"})
         mag7_df["Value (EUR)"] = mag7_df["Value (EUR)"].apply(lambda v: f"€{v:,.2f}")
-        st.dataframe(mag7_df, use_container_width=True, hide_index=True)
+        st.dataframe(mag7_df, width='stretch', hide_index=True)
     else:
         st.caption("No Magnificent 7 exposure detected via fund look-through.")
 
