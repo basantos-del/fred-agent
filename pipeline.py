@@ -53,7 +53,8 @@ def run_researcher(question, max_iterations=4):
             client,
             model="openai/gpt-oss-20b",
             messages=messages,
-            tools=None if is_final_attempt else tools,
+            tools=tools,
+            tool_choice="none" if is_final_attempt else "auto",
             temperature=0
         )
         message = response.choices[0].message
