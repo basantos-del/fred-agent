@@ -1,4 +1,7 @@
 import streamlit as st
+
+st.set_page_config(page_title="Fred", layout="wide")
+
 from agent import run_agent_turn, SYSTEM_PROMPT
 from agent_claude import run_agent_turn_claude
 from tools import get_portfolio_context
@@ -86,32 +89,41 @@ with tab_compare:
     compare_question = st.text_input("Ask both models the same question:")
 
     if st.button("Compare"):
+        compare_instruction = (
+            "\n\nFormat your response using bold text and bullet points for "
+            "emphasis — avoid large markdown headers (# or ##), since this "
+            "will be shown in a narrow side-by-side comparison."
+        )
+        full_question = compare_question + compare_instruction
+
         col_groq, col_claude = st.columns(2)
 
         with col_groq:
-            st.write("**Groq (gpt-oss-20b)**")
-            with st.spinner("Groq thinking..."):
-                try:
-                    groq_messages = [
-                        {"role": "system", "content": SYSTEM_PROMPT},
-                        {"role": "user", "content": compare_question}
-                    ]
-                    groq_answer, groq_tools = run_agent_turn(groq_messages)
-                except Exception as e:
-                    groq_answer = f"Error: {e}"
-                    groq_tools = []
-            st.markdown(groq_answer)
-            if groq_tools:
-                st.caption(f"Tools used: {', '.join(groq_tools)}")
+            with st.container(border=True):
+                st.write("**Groq (gpt-oss-20b)**")
+                with st.spinner("Groq thinking..."):
+                    try:
+                        groq_messages = [
+                            {"role": "system", "content": SYSTEM_PROMPT},
+                            {"role": "user", "content": full_question}
+                        ]
+                        groq_answer, groq_tools = run_agent_turn(groq_messages)
+                    except Exception as e:
+                        groq_answer = f"Error: {e}"
+                        groq_tools = []
+                st.markdown(groq_answer)
+                if groq_tools:
+                    st.caption(f"Tools used: {', '.join(groq_tools)}")
 
         with col_claude:
-            st.write("**Claude (sonnet-4-5)**")
-            with st.spinner("Claude thinking..."):
-                try:
-                    claude_answer, claude_tools = run_agent_turn_claude(compare_question, SYSTEM_PROMPT)
-                except Exception as e:
-                    claude_answer = f"Error: {e}"
-                    claude_tools = []
-            st.markdown(claude_answer)
-            if claude_tools:
-                st.caption(f"Tools used: {', '.join(claude_tools)}")
+            with st.container(border=True):
+                st.write("**Claude (sonnet-4-5)**")
+                with st.spinner("Claude thinking..."):
+                    try:
+                        claude_answer, claude_tools = run_agent_turn_claude(full_question, SYSTEM_PROMPT)
+                    except Exception as e:
+                        claude_answer = f"Error: {e}"
+                        claude_tools = []
+                st.markdown(claude_answer)
+                if claude_tools:
+                    st.caption(f"Tools used: {', '.join(claude_tools)}")
