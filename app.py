@@ -94,7 +94,10 @@ with tab_dashboard:
             st.warning(f"⚠️ Sector concentration risk: **{industry}** is **{pct}%** of your portfolio.")
 
     if context["magnificent_7_pct"] >= 40:
-        st.warning(f"⚠️ Magnificent 7 concentration: **{context['magnificent_7_pct']}%** of your portfolio is in Magnificent 7 stocks.")
+        st.warning(f"⚠️ Magnificent 7 concentration (including fund look-through): **{context['magnificent_7_pct']}%** of your portfolio.")
+        with st.expander("See which holdings contribute to this"):
+            for h in context["magnificent_7_lookthrough_detail"]:
+                st.write(f"- {h['holding']} (via {h['fund']}): €{h['value_eur']:,.2f}")
     
     st.metric("Total Value", f"€{context['total_value_eur']:,.2f}")
 

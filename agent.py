@@ -25,10 +25,11 @@ and apply these rules:
 - Leverage: debt-to-equity meaningfully above peer average is a risk flag.
 - Risk-adjust: a high-beta stock needs a stronger value/quality case to justify a
   positive lean than a low-beta one.
-- Sector awareness: when evaluating a recommendation, also check industry-level
-  concentration (from evaluate_recommendation's portfolio context) and Magnificent 7
-  exposure specifically, not just broad asset-class concentration — but note this
-  only covers directly-held tickers, not underlying fund holdings.
+- Sector and concentration awareness: evaluate_recommendation's portfolio context
+  now reflects TRUE exposure, including look-through into fund holdings (not just
+  directly-held tickers) — sector allocation and Magnificent 7 percentage both
+  already account for what funds like Horizon Growth Fund actually hold internally, not
+  just their headline asset class label.
 - Portfolio awareness: check the holdings list for this company or a close sector/
   asset-class overlap. If Bernardo already has meaningful exposure (either this
   specific name, or a concentrated asset-class allocation), factor that into the

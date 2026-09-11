@@ -30,6 +30,7 @@ filings_collection = chroma_client.get_or_create_collection(name="filings")
 
 SEC_HEADERS = {"User-Agent": "Bernardo Santos albasantos.bernardo@gmail.com"}
 MAGNIFICENT_7 = {"AAPL", "MSFT", "GOOGL", "GOOG", "AMZN", "META", "NVDA", "TSLA"}
+MAGNIFICENT_7_NAMES = ["apple", "microsoft", "alphabet", "google", "amazon", "meta", "facebook", "nvidia", "tesla"]
 
 def get_sentiment(headline, summary):
     prompt = f"""Headline: {headline}
@@ -46,6 +47,64 @@ Reason: <short reason>"""
         messages=[{"role": "user", "content": prompt}]
     )
     return response.choices[0].message.content
+
+def _get_fund_value_lookup():
+    holdings = get_portfolio()
+    return {h["name"]: h["value_eur"] for h in holdings}
+
+
+def get_fund_lookthrough_sectors():
+    ws = sheet.worksheet("Fund Look-Through")
+    values = ws.get_all_values()
+    fund_values = _get_fund_value_lookup()
+
+    sector_totals = {}
+    for row in values[1:]:
+        if not row or not row[0]:
+            continue
+        fund_name, sector, weight_str = row[0], row[1], row[2]
+        fund_value = fund_values.get(fund_name)
+        if fund_value is None:
+            continue
+
+        weight_pct = parse_percentage(weight_str)
+        if weight_pct is None:
+            continue
+
+        contribution = fund_value * (weight_pct / 100)
+        sector_totals[sector] = sector_totals.get(sector, 0) + contribution
+
+    return sector_totals
+
+
+def get_fund_lookthrough_magnificent_7():
+    ws = sheet.worksheet("Fund Holdings")
+    values = ws.get_all_values()
+    fund_values = _get_fund_value_lookup()
+
+    total = 0
+    matched_holdings = []
+    for row in values[1:]:
+        if not row or not row[0]:
+            continue
+        fund_name, holding_name, weight_str = row[0], row[1], row[2]
+
+        if not any(name in holding_name.lower() for name in MAGNIFICENT_7_NAMES):
+            continue
+
+        fund_value = fund_values.get(fund_name)
+        if fund_value is None:
+            continue
+
+        weight_pct = parse_percentage(weight_str)
+        if weight_pct is None:
+            continue
+
+        contribution = fund_value * (weight_pct / 100)
+        total += contribution
+        matched_holdings.append({"fund": fund_name, "holding": holding_name, "value_eur": round(contribution, 2)})
+
+    return {"total_value_eur": round(total, 2), "matched_holdings": matched_holdings}
 
 def get_industry(ticker):
     url = "https://finnhub.io/api/v1/stock/profile2"
@@ -170,7 +229,7 @@ def get_portfolio_context():
 
     by_exposure_value = {}
     by_industry_value = {}
-    mag7_value = 0
+    direct_mag7_value = 0
 
     for h in holdings:
         by_exposure_value[h["exposure_category"]] = by_exposure_value.get(h["exposure_category"], 0) + h["value_eur"]
@@ -180,20 +239,27 @@ def get_portfolio_context():
             h["industry"] = industry
             if industry:
                 by_industry_value[industry] = by_industry_value.get(industry, 0) + h["value_eur"]
-
             if h["ticker"] in MAGNIFICENT_7:
-                mag7_value += h["value_eur"]
+                direct_mag7_value += h["value_eur"]
+
+    lookthrough_sectors = get_fund_lookthrough_sectors()
+    for sector, value in lookthrough_sectors.items():
+        by_industry_value[sector] = by_industry_value.get(sector, 0) + value
+
+    lookthrough_mag7 = get_fund_lookthrough_magnificent_7()
+    true_mag7_value = direct_mag7_value + lookthrough_mag7["total_value_eur"]
 
     allocation = {k: round(v / total * 100, 1) for k, v in by_exposure_value.items()}
     industry_allocation = {k: round(v / total * 100, 1) for k, v in by_industry_value.items()}
-    mag7_pct = round(mag7_value / total * 100, 1) if total else 0
+    true_mag7_pct = round(true_mag7_value / total * 100, 1) if total else 0
 
     return {
         "total_value_eur": total,
         "allocation_by_exposure": allocation,
         "value_by_exposure": by_exposure_value,
         "allocation_by_industry": industry_allocation,
-        "magnificent_7_pct": mag7_pct,
+        "magnificent_7_pct": true_mag7_pct,
+        "magnificent_7_lookthrough_detail": lookthrough_mag7["matched_holdings"],
         "holdings": holdings
     }
 
