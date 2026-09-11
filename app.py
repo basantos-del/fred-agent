@@ -144,7 +144,7 @@ with tab_dashboard:
         [{"Sector": k, "% of Portfolio": v} for k, v in context["allocation_by_industry"].items()]
     ).sort_values("% of Portfolio", ascending=False)
     st.write("**Sector allocation (including fund look-through):**")
-    st.dataframe(sector_df, widht='stretch', hide_index=True)
+    st.dataframe(sector_df, width='stretch', hide_index=True)
 
     st.write(f"**Magnificent 7 total: {context['magnificent_7_pct']}% of portfolio**")
     if context["magnificent_7_lookthrough_detail"]:
