@@ -4,10 +4,9 @@ st.set_page_config(page_title="Fred", layout="wide")
 
 from agent import run_agent_turn, SYSTEM_PROMPT
 from agent_claude import run_agent_turn_claude
-from tools import get_portfolio_context
+from tools import get_portfolio_context, log_portfolio_snapshot, get_portfolio_history
 
-st.title("Fred — Financial Analyst")
-
+st.title("Hi,Bernardo! Let's get your finances up and running")
 
 @st.cache_data(ttl=300)
 def get_cached_portfolio_context():
@@ -72,17 +71,56 @@ with tab_chat:
                         st.write(f"- `{t}`")
 
 with tab_dashboard:
+    import pandas as pd
+    import altair as alt
+
     st.subheader("Portfolio")
 
     context = get_cached_portfolio_context()
 
+    @st.cache_data(ttl=3600)
+    def get_cached_history(total_value_eur):
+        log_portfolio_snapshot(total_value_eur)
+        return get_portfolio_history()
+
+    history = get_cached_history(context["total_value_eur"])
+
+    for category, pct in context["allocation_by_exposure"].items():
+        if pct >= 40:
+            st.warning(f"⚠️ Concentration risk: **{category}** is **{pct}%** of your portfolio.")
+
     st.metric("Total Value", f"€{context['total_value_eur']:,.2f}")
 
     st.write("**Allocation by Exposure**")
-    st.bar_chart(context["allocation_by_exposure"])
+    cols = st.columns(len(context["value_by_exposure"]))
+    for col, (category, value) in zip(cols, context["value_by_exposure"].items()):
+        pct = context["allocation_by_exposure"].get(category, 0)
+        with col:
+            st.metric(category, f"€{value:,.0f}", f"{pct}%")
+
+    chart_df = pd.DataFrame({
+        "category": list(context["value_by_exposure"].keys()),
+        "value": list(context["value_by_exposure"].values())
+    })
+    donut = alt.Chart(chart_df).mark_arc(innerRadius=70).encode(
+        theta="value",
+        color="category",
+        tooltip=["category", "value"]
+    ).properties(height=350)
+    st.altair_chart(donut, use_container_width=True)
+
+    st.write("**Portfolio Value Over Time**")
+    if len(history) >= 2:
+        history_df = pd.DataFrame(history)
+        st.line_chart(history_df.set_index("date")["total_value_eur"])
+    else:
+        st.caption("History will build up as you use the dashboard over time (logs once per day).")
 
     st.write("**Holdings**")
-    st.dataframe(context["holdings"])
+    holdings_df = pd.DataFrame(context["holdings"]).sort_values("value_eur", ascending=False)
+    holdings_df["ticker"] = holdings_df["ticker"].fillna("—")
+    holdings_df["value_eur"] = holdings_df["value_eur"].apply(lambda v: f"€{v:,.2f}")
+    st.dataframe(holdings_df, use_container_width=True, hide_index=True)
 
 with tab_compare:
     st.subheader("Compare Groq (gpt-oss-20b) vs Claude")

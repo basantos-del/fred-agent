@@ -106,6 +106,8 @@ def parse_percentage(value_str):
     cleaned = value_str.replace("%", "").replace(",", ".").strip()
     return float(cleaned) if cleaned else None
 
+#Portfolio functions
+
 def get_portfolio():
     values = worksheet.get_all_values()
     holdings = []
@@ -123,6 +125,52 @@ def get_portfolio():
             "currency": currency
         })
     return holdings
+
+def get_history_worksheet():
+    return sheet.worksheet("History")
+
+def log_portfolio_snapshot(total_value_eur):
+    ws = get_history_worksheet()
+    values = ws.get_all_values()
+    today_str = datetime.now().strftime("%Y-%m-%d")
+
+    if len(values) > 1:
+        last_date = values[-1][0]
+        if last_date == today_str:
+            return  # already logged today
+
+    ws.append_row([today_str, str(total_value_eur)])
+
+def get_portfolio_history():
+    ws = get_history_worksheet()
+    values = ws.get_all_values()
+
+    history = []
+    for row in values[1:]:
+        if not row or not row[0]:
+            continue
+        try:
+            history.append({"date": row[0], "total_value_eur": float(row[1])})
+        except (ValueError, IndexError):
+            continue
+
+    return history
+
+def get_portfolio_context():
+    holdings = get_portfolio()
+    total = sum(h["value_eur"] for h in holdings)
+
+    by_exposure_value = {}
+    for h in holdings:
+        by_exposure_value[h["exposure_category"]] = by_exposure_value.get(h["exposure_category"], 0) + h["value_eur"]
+
+    allocation = {k: round(v / total * 100, 1) for k, v in by_exposure_value.items()}
+    return {
+        "total_value_eur": total,
+        "allocation_by_exposure": allocation,
+        "value_by_exposure": by_exposure_value,
+        "holdings": holdings
+    }
 
 def get_company_news(ticker, days_back=7):
     end = datetime.now()
@@ -331,17 +379,6 @@ def get_peer_average_ratios(ticker):
         averages[key] = round(sum(values) / len(values), 2) if values else None
 
     return {"peers": peers, "peer_averages": averages}
-
-def get_portfolio_context():
-    holdings = get_portfolio()
-    total = sum(h["value_eur"] for h in holdings)
-
-    by_exposure = {}
-    for h in holdings:
-        by_exposure[h["exposure_category"]] = by_exposure.get(h["exposure_category"], 0) + h["value_eur"]
-
-    allocation = {k: round(v / total * 100, 1) for k, v in by_exposure.items()}
-    return {"total_value_eur": total, "allocation_by_exposure": allocation, "holdings": holdings}
 
 def evaluate_recommendation(ticker):
     return {
