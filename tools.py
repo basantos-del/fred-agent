@@ -16,10 +16,7 @@ from groq import RateLimitError
 load_dotenv()
 finnhub_key = os.environ["FINNHUB_API_KEY"]
 
-raw_value = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON", "")
-print(f"DEBUG: length of GOOGLE_SERVICE_ACCOUNT_JSON = {len(raw_value)}")
-print(f"DEBUG: first 30 chars = {raw_value[:30]!r}")
-print(f"DEBUG: last 30 chars = {raw_value[-30:]!r}")
+service_account_info = json.loads(os.environ["GOOGLE_SERVICE_ACCOUNT_JSON"])
 
 service_account_info = json.loads(raw_value)
 gc = gspread.service_account_from_dict(service_account_info)
@@ -58,6 +55,15 @@ def get_stock_price(ticker):
     data = response.json()
     return data["c"]
 
+def to_anthropic_tools(openai_tools):
+    return [
+        {
+            "name": t["function"]["name"],
+            "description": t["function"]["description"],
+            "input_schema": t["function"]["parameters"]
+        }
+        for t in openai_tools
+    ]
 
 def get_market_cap(ticker):
     url = "https://finnhub.io/api/v1/stock/profile2"

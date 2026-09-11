@@ -1,5 +1,6 @@
 import streamlit as st
 from agent import run_agent_turn, SYSTEM_PROMPT
+from agent_claude import run_agent_turn_claude
 from tools import get_portfolio_context
 
 st.title("Fred — Financial Analyst")
@@ -10,7 +11,7 @@ def get_cached_portfolio_context():
     return get_portfolio_context()
 
 
-tab_chat, tab_dashboard = st.tabs(["Chat", "Dashboard"])
+tab_chat, tab_dashboard, tab_compare = st.tabs(["Chat", "Dashboard", "Model Comparison"])
 
 with tab_chat:
     if "messages" not in st.session_state:
@@ -79,3 +80,38 @@ with tab_dashboard:
 
     st.write("**Holdings**")
     st.dataframe(context["holdings"])
+
+with tab_compare:
+    st.subheader("Compare Groq (gpt-oss-20b) vs Claude")
+    compare_question = st.text_input("Ask both models the same question:")
+
+    if st.button("Compare"):
+        col_groq, col_claude = st.columns(2)
+
+        with col_groq:
+            st.write("**Groq (gpt-oss-20b)**")
+            with st.spinner("Groq thinking..."):
+                try:
+                    groq_messages = [
+                        {"role": "system", "content": SYSTEM_PROMPT},
+                        {"role": "user", "content": compare_question}
+                    ]
+                    groq_answer, groq_tools = run_agent_turn(groq_messages)
+                except Exception as e:
+                    groq_answer = f"Error: {e}"
+                    groq_tools = []
+            st.markdown(groq_answer)
+            if groq_tools:
+                st.caption(f"Tools used: {', '.join(groq_tools)}")
+
+        with col_claude:
+            st.write("**Claude (sonnet-4-5)**")
+            with st.spinner("Claude thinking..."):
+                try:
+                    claude_answer, claude_tools = run_agent_turn_claude(compare_question, SYSTEM_PROMPT)
+                except Exception as e:
+                    claude_answer = f"Error: {e}"
+                    claude_tools = []
+            st.markdown(claude_answer)
+            if claude_tools:
+                st.caption(f"Tools used: {', '.join(claude_tools)}")
