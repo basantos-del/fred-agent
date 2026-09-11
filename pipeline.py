@@ -84,7 +84,7 @@ def run_researcher(question, max_iterations=4):
                 function_name = tool_call.function.name.split("<")[0]
                 args = json.loads(tool_call.function.arguments)
                 args = {k: v for k, v in args.items() if k}
-		args = filter_args_for_tool(function_name, args)
+                args = filter_args_for_tool(function_name, args)
 
                 call_key = f"{function_name}({json.dumps(args, sort_keys=True)})"
 

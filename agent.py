@@ -67,7 +67,7 @@ def run_agent_turn(messages, max_iterations=10):
 
                 args = json.loads(tool_call.function.arguments)
                 args = {k: v for k, v in args.items() if k}
-		args = filter_args_for_tool(function_name, args)
+                args = filter_args_for_tool(function_name, args)
 
                 print(f"Calling tool: {function_name}({args})", flush=True)
                 try:
