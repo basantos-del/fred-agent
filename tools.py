@@ -348,7 +348,8 @@ def evaluate_recommendation(ticker):
         "ticker": ticker,
         "ratios": get_key_ratios(ticker),
         "peer_comparison": get_peer_average_ratios(ticker),
-        "portfolio_context": get_portfolio_context()
+        "portfolio_context": get_portfolio_context(),
+        "usd_to_eur_rate": get_exchange_rate("USD", "EUR")
     }
 
 def call_groq_with_retry(client, **kwargs):
@@ -359,6 +360,13 @@ def call_groq_with_retry(client, **kwargs):
             print(f"Groq rate limited, waiting 30s... ({e})")
             time.sleep(30)
 
+def get_exchange_rate(from_currency="USD", to_currency="EUR"):
+    url = "https://finnhub.io/api/v1/forex/rates"
+    params = {"base": from_currency, "token": finnhub_key}
+    response = requests.get(url, params=params)
+    data = response.json()
+    return data["quote"].get(to_currency)
+
 tool_functions = {
     "get_stock_price": get_stock_price,
     "get_market_cap": get_market_cap,
@@ -368,6 +376,7 @@ tool_functions = {
     "get_filing_context": get_filing_context,
     "get_news_context": get_news_context,
     "evaluate_recommendation": evaluate_recommendation,
+    "get_exchange_rate": get_exchange_rate,
 }
 
 #tools schema
@@ -428,6 +437,21 @@ tools = [
                 "question": {"type": "string", "description": "What to search for within the filing"}
             },
             "required": ["ticker", "question"]
+        }
+    }
+},
+{
+    "type": "function",
+    "function": {
+        "name": "get_exchange_rate",
+        "description": "Get the current exchange rate between two currencies, e.g. USD to EUR",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "from_currency": {"type": "string", "description": "Currency code to convert from, e.g. USD"},
+                "to_currency": {"type": "string", "description": "Currency code to convert to, e.g. EUR"}
+            },
+            "required": []
         }
     }
 },

@@ -30,6 +30,11 @@ and apply these rules:
   specific name, or a concentrated asset-class allocation), factor that into the
   conclusion — don't recommend adding to an already-concentrated position without
   flagging the concentration explicitly.
+- Currency awareness: stock prices and ratios from Finnhub are in USD, but the
+  portfolio is tracked in EUR. Use usd_to_eur_rate from evaluate_recommendation
+  when comparing a USD-denominated value (like a stock's price or market cap)
+  against EUR portfolio figures, rather than treating the numbers as directly
+  comparable.
 - Only give an explicit buy/avoid recommendation if the evidence clearly supports
   it (e.g., cheap AND high-quality AND not already concentrated = lean bullish;
   expensive AND weak AND already concentrated = lean avoid). Otherwise, say
