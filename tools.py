@@ -13,6 +13,8 @@ from bs4 import BeautifulSoup
 from voyageai.error import RateLimitError
 from groq import Groq
 from groq import RateLimitError
+from groq import RateLimitError, BadRequestError
+import re
 
 load_dotenv()
 finnhub_key = os.environ["FINNHUB_API_KEY"]
@@ -486,7 +488,9 @@ def evaluate_recommendation(ticker):
         "usd_to_eur_rate": get_exchange_rate("USD", "EUR")
     }
 
-def call_groq_with_retry(client, **kwargs):
+def call_groq_with_retry(client, max_malformed_retries=3, **kwargs):
+    malformed_attempts = 0
+
     while True:
         try:
             return client.chat.completions.create(**kwargs)
@@ -497,9 +501,15 @@ def call_groq_with_retry(client, **kwargs):
                 minutes = int(match.group(1)) if match.group(1) else 0
                 seconds = float(match.group(2))
                 wait_time = minutes * 60 + seconds + 2
-
             print(f"Groq rate limited, waiting {wait_time:.0f}s... ({e})", flush=True)
             time.sleep(wait_time)
+        except BadRequestError as e:
+            if "tool_use_failed" not in str(e):
+                raise
+            malformed_attempts += 1
+            if malformed_attempts >= max_malformed_retries:
+                raise
+            print(f"Groq generated malformed tool call, retrying ({malformed_attempts}/{max_malformed_retries})...", flush=True)
 
 def get_exchange_rate(from_currency="USD", to_currency="EUR"):
     url = "https://finnhub.io/api/v1/forex/rates"
