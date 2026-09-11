@@ -6,9 +6,6 @@ from tools import tool_functions, tools, call_groq_with_retry
 
 load_dotenv()
 api_key = os.environ["GROQ_API_KEY"]
-print(f"DEBUG: GROQ_API_KEY length = {len(api_key)}")
-print(f"DEBUG: GROQ_API_KEY starts with = {api_key[:6]!r}")
-print(f"DEBUG: GROQ_API_KEY ends with = {api_key[-4:]!r}")
 client = Groq(api_key=api_key)
 
 SYSTEM_PROMPT = """You are Fred, a senior financial analyst with sell-side rigor.
@@ -40,9 +37,11 @@ and apply these rules:
 
 
 def run_agent_turn(messages):
+    used_tools = []
+
     while True:
         response = call_groq_with_retry(
-	    client,
+            client,
             model="openai/gpt-oss-20b",
             messages=messages,
             tools=tools
@@ -53,11 +52,16 @@ def run_agent_turn(messages):
         if message.tool_calls:
             for tool_call in message.tool_calls:
                 function_name = tool_call.function.name.split("<")[0]
+                used_tools.append(function_name)
                 function_to_call = tool_functions[function_name]
 
                 args = json.loads(tool_call.function.arguments)
                 args = {k: v for k, v in args.items() if k}
-                result = function_to_call(**args)
+
+                try:
+                    result = function_to_call(**args)
+                except Exception as e:
+                    result = {"error": f"Tool '{function_name}' failed: {e}"}
 
                 messages.append({
                     "role": "tool",
@@ -65,4 +69,4 @@ def run_agent_turn(messages):
                     "content": json.dumps(result)
                 })
         else:
-            return message.content
+            return message.content, used_tools
