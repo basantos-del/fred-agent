@@ -63,10 +63,13 @@ def run_agent_turn(messages, max_iterations=10):
                 args = json.loads(tool_call.function.arguments)
                 args = {k: v for k, v in args.items() if k}
 
+                print(f"Calling tool: {function_name}({args})")
                 try:
                     result = function_to_call(**args)
+                    print(f"Tool {function_name} finished.")
                 except Exception as e:
                     result = {"error": f"Tool '{function_name}' failed: {e}"}
+                    print(f"Tool {function_name} failed: {e}")
 
                 messages.append({
                     "role": "tool",

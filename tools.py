@@ -312,8 +312,7 @@ def fetch_raw_news(ticker, days_back=7):
         "token": finnhub_key
     }
     response = requests.get(url, params=params)
-    return response.json()[:10]
-
+    return response.json()[:4]
 
 news_collection = chroma_client.get_or_create_collection(name="news")
 
