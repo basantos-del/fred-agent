@@ -17,8 +17,6 @@ load_dotenv()
 finnhub_key = os.environ["FINNHUB_API_KEY"]
 
 service_account_info = json.loads(os.environ["GOOGLE_SERVICE_ACCOUNT_JSON"])
-
-service_account_info = json.loads(raw_value)
 gc = gspread.service_account_from_dict(service_account_info)
 
 sheet = gc.open_by_key(os.environ["PORTFOLIO_SHEET_ID"])
