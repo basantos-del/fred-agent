@@ -41,10 +41,10 @@ and apply these rules:
   explicitly that it's mixed/inconclusive rather than forcing a call."""
 
 
-def run_agent_turn(messages):
+def run_agent_turn(messages, max_iterations=10):
     used_tools = []
 
-    while True:
+    for _ in range(max_iterations):
         response = call_groq_with_retry(
             client,
             model="openai/gpt-oss-20b",
@@ -75,3 +75,5 @@ def run_agent_turn(messages):
                 })
         else:
             return message.content, used_tools
+
+    return "I wasn't able to reach a final answer after several tool calls — try rephrasing your question.", used_tools
