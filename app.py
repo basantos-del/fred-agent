@@ -16,7 +16,50 @@ def get_cached_portfolio_context():
 tab_chat, tab_dashboard, tab_compare, tab_eval = st.tabs(["Chat", "Dashboard", "Model Comparison", "Eval"])
 
 with tab_chat:
-    if "messages" not in st.session_state:
+with tab_dashboard:
+    import pandas as pd
+    import altair as alt
+
+    st.subheader("Portfolio")
+
+    context = get_cached_portfolio_context()
+
+    @st.cache_data(ttl=3600)
+    def get_cached_history(total_value_eur):
+        log_portfolio_snapshot(total_value_eur)
+        return get_portfolio_history()
+
+    history = get_cached_history(context["total_value_eur"])
+
+    # --- Headline number ---
+    st.metric("Total Value", f"€{context['total_value_eur']:,.2f}")
+
+    # --- Per-category metric cards ---
+    st.write("**Allocation by Exposure**")
+    cols = st.columns(len(context["value_by_exposure"]))
+    for col, (category, value) in zip(cols, context["value_by_exposure"].items()):
+        pct = context["allocation_by_exposure"].get(category, 0)
+        with col:
+            st.metric(category, f"€{value:,.0f}", f"{pct}%")
+
+    # --- Donut chart ---
+    chart_df = pd.DataFrame({
+        "category": list(context["value_by_exposure"].keys()),
+        "value": list(context["value_by_exposure"].values())
+    })
+    donut = alt.Chart(chart_df).mark_arc(innerRadius=70).encode(
+        theta="value",
+        color="category",
+        tooltip=["category", "value"]
+    ).properties(height=350)
+    st.altair_chart(donut, use_container_width=True)
+
+    # --- Portfolio value over time ---
+    st.write("**Portfolio Value Over Time**")
+    if len(history) >= 2:
+        history_df = pd.DataFrame(history)
+        st.line_chart(history_df.set_index("date")["total_value_eur"])
+    else:    if "messages" not in st.session_state:
         st.session_state.messages = [
             {"role": "system", "content": SYSTEM_PROMPT}
         ]
@@ -69,6 +112,7 @@ with tab_chat:
                 with st.expander(f"Fred used {len(used_tools)} tool call(s)"):
                     for t in used_tools:
                         st.write(f"- `{t}`")
+
 with tab_dashboard:
     import pandas as pd
     import altair as alt
@@ -83,31 +127,6 @@ with tab_dashboard:
         return get_portfolio_history()
 
     history = get_cached_history(context["total_value_eur"])
-
-    # --- Concentration warning banners ---
-    for category, pct in context["allocation_by_exposure"].items():
-        if pct >= 40:
-            st.warning(f"⚠️ Concentration risk: **{category}** is **{pct}%** of your portfolio.")
-
-    for industry, pct in context["allocation_by_industry"].items():
-        if pct >= 40:
-            st.warning(f"⚠️ Sector concentration risk: **{industry}** is **{pct}%** of your portfolio.")
-
-    if context["magnificent_7_pct"] >= 40:
-        st.warning(f"⚠️ Magnificent 7 concentration (including fund look-through): **{context['magnificent_7_pct']}%** of your portfolio.")
-        with st.expander("See which holdings contribute to this"):
-            for h in context["magnificent_7_lookthrough_detail"]:
-                st.write(f"- {h['holding']} (via {h['fund']}): €{h['value_eur']:,.2f}")
-
-    # --- Always-shown breakdown, regardless of whether a banner fired ---
-    with st.expander("Full sector & Magnificent 7 breakdown (always shown)"):
-        st.write("**Sector allocation (including fund look-through):**")
-        for industry, pct in context["allocation_by_industry"].items():
-            st.write(f"- {industry}: {pct}%")
-
-        st.write(f"**Magnificent 7 (including fund look-through): {context['magnificent_7_pct']}%**")
-        for h in context["magnificent_7_lookthrough_detail"]:
-            st.write(f"  - {h['holding']} (via {h['fund']}): €{h['value_eur']:,.2f}")
 
     # --- Headline number ---
     st.metric("Total Value", f"€{context['total_value_eur']:,.2f}")
@@ -146,6 +165,43 @@ with tab_dashboard:
     holdings_df["ticker"] = holdings_df["ticker"].fillna("—")
     holdings_df["value_eur"] = holdings_df["value_eur"].apply(lambda v: f"€{v:,.2f}")
     st.dataframe(holdings_df, use_container_width=True, hide_index=True)
+
+    # --- Concentration alerts, at the end ---
+    st.subheader("Concentration Alerts")
+
+    alert_rows = []
+    for category, pct in context["allocation_by_exposure"].items():
+        if pct >= 40:
+            alert_rows.append({"Type": "Exposure Category", "Name": category, "% of Portfolio": pct})
+    for industry, pct in context["allocation_by_industry"].items():
+        if pct >= 40:
+            alert_rows.append({"Type": "Sector", "Name": industry, "% of Portfolio": pct})
+    if context["magnificent_7_pct"] >= 40:
+        alert_rows.append({"Type": "Magnificent 7", "Name": "Magnificent 7 stocks", "% of Portfolio": context["magnificent_7_pct"]})
+
+    if alert_rows:
+        st.warning(f"⚠️ {len(alert_rows)} concentration alert(s) — see table below.")
+        st.dataframe(pd.DataFrame(alert_rows), use_container_width=True, hide_index=True)
+    else:
+        st.success("✅ No concentration alerts — nothing currently exceeds the 40% threshold.")
+
+    # --- Full sector & Magnificent 7 breakdown, as tables ---
+    st.subheader("Full Sector & Magnificent 7 Breakdown")
+
+    sector_df = pd.DataFrame(
+        [{"Sector": k, "% of Portfolio": v} for k, v in context["allocation_by_industry"].items()]
+    ).sort_values("% of Portfolio", ascending=False)
+    st.write("**Sector allocation (including fund look-through):**")
+    st.dataframe(sector_df, use_container_width=True, hide_index=True)
+
+    st.write(f"**Magnificent 7 total: {context['magnificent_7_pct']}% of portfolio**")
+    if context["magnificent_7_lookthrough_detail"]:
+        mag7_df = pd.DataFrame(context["magnificent_7_lookthrough_detail"])
+        mag7_df = mag7_df.rename(columns={"holding": "Holding", "fund": "Via Fund", "value_eur": "Value (EUR)"})
+        mag7_df["Value (EUR)"] = mag7_df["Value (EUR)"].apply(lambda v: f"€{v:,.2f}")
+        st.dataframe(mag7_df, use_container_width=True, hide_index=True)
+    else:
+        st.caption("No Magnificent 7 exposure detected via fund look-through.")
 
 with tab_compare:
     st.subheader("Compare Groq (gpt-oss-20b) vs Claude")
