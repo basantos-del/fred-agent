@@ -52,11 +52,9 @@ def _get_fund_value_lookup():
     holdings = get_portfolio()
     return {h["name"]: h["value_eur"] for h in holdings}
 
-
-def get_fund_lookthrough_sectors():
+def get_fund_lookthrough_sectors(fund_values):
     ws = sheet.worksheet("Fund Look-Through")
     values = ws.get_all_values()
-    fund_values = _get_fund_value_lookup()
 
     sector_totals = {}
     for row in values[1:]:
@@ -77,10 +75,9 @@ def get_fund_lookthrough_sectors():
     return sector_totals
 
 
-def get_fund_lookthrough_magnificent_7():
+def get_fund_lookthrough_magnificent_7(fund_values):
     ws = sheet.worksheet("Fund Holdings")
     values = ws.get_all_values()
-    fund_values = _get_fund_value_lookup()
 
     total = 0
     matched_holdings = []
@@ -226,6 +223,7 @@ def get_portfolio_history():
 def get_portfolio_context():
     holdings = get_portfolio()
     total = sum(h["value_eur"] for h in holdings)
+    fund_values = _get_fund_value_lookup()
 
     by_exposure_value = {}
     by_industry_value = {}
@@ -242,11 +240,11 @@ def get_portfolio_context():
             if h["ticker"] in MAGNIFICENT_7:
                 direct_mag7_value += h["value_eur"]
 
-    lookthrough_sectors = get_fund_lookthrough_sectors()
+    lookthrough_sectors = get_fund_lookthrough_sectors(fund_values)
     for sector, value in lookthrough_sectors.items():
         by_industry_value[sector] = by_industry_value.get(sector, 0) + value
 
-    lookthrough_mag7 = get_fund_lookthrough_magnificent_7()
+    lookthrough_mag7 = get_fund_lookthrough_magnificent_7(fund_values)
     true_mag7_value = direct_mag7_value + lookthrough_mag7["total_value_eur"]
 
     allocation = {k: round(v / total * 100, 1) for k, v in by_exposure_value.items()}
