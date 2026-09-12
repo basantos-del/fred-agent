@@ -1,10 +1,11 @@
 import streamlit as st
-from pipeline import run_pipeline
+from itertools import groupby
 
 st.set_page_config(page_title="Fred", layout="wide")
 
 from agent import run_agent_turn, SYSTEM_PROMPT
 from agent_claude import run_agent_turn_claude
+from pipeline import run_pipeline
 from tools import get_portfolio_context, log_portfolio_snapshot, get_portfolio_history
 from eval import run_single_eval_case, GOLDEN_SET
 
@@ -44,33 +45,52 @@ with tab_chat:
         if st.button("Any concentration risk?"):
             quick_prompt = "Do I have any concentration risk in my portfolio right now?"
 
-    for msg in st.session_state.messages:
-        role = msg["role"] if isinstance(msg, dict) else msg.role
-        content = msg.get("content") if isinstance(msg, dict) else msg.content
+    displayable = [
+        m for m in st.session_state.messages
+        if (m["role"] if isinstance(m, dict) else m.role) in ("user", "assistant")
+        and isinstance((m.get("content") if isinstance(m, dict) else m.content), str)
+    ]
 
-        if role in ("user", "assistant") and isinstance(content, str):
-            with st.chat_message(role):
-                st.markdown(content)
+    for thread_id, group in groupby(displayable, key=lambda m: m.get("thread_id", 0) if isinstance(m, dict) else 0):
+        group = list(group)
+        with st.container(border=True):
+            for msg in group:
+                role = msg["role"] if isinstance(msg, dict) else msg.role
+                content = msg.get("content") if isinstance(msg, dict) else msg.content
+                with st.chat_message(role):
+                    st.markdown(content)
 
     typed_prompt = st.chat_input("Ask Fred something...")
     prompt = typed_prompt or quick_prompt
 
     if prompt:
-        st.session_state.messages.append({"role": "user", "content": prompt})
+        if st.session_state.get("pending_state"):
+            thread_id = st.session_state.get("current_thread_id", 0)
+        else:
+            thread_id = st.session_state.get("current_thread_id", 0) + 1
+            st.session_state["current_thread_id"] = thread_id
+
+        st.session_state.messages.append({"role": "user", "content": prompt, "thread_id": thread_id})
         with st.chat_message("user"):
             st.markdown(prompt)
 
         with st.chat_message("assistant"):
-            with st.spinner("Thinking..."):
-                try:
-                    pending = st.session_state.get("pending_state")
-                    result = run_pipeline(prompt, pending_state=pending)
-                except Exception as e:
-                    result = {
-                        "type": "answer",
-                        "content": f"Something went wrong while researching that: {e}. Try rephrasing or asking again.",
-                        "route": "error"
-                    }
+            status = st.status("Starting...", expanded=False)
+            try:
+                pending = st.session_state.get("pending_state")
+                result = run_pipeline(
+                    prompt,
+                    pending_state=pending,
+                    on_progress=lambda stage: status.update(label=stage)
+                )
+                status.update(label="Done", state="complete")
+            except Exception as e:
+                status.update(label="Failed", state="error")
+                result = {
+                    "type": "answer",
+                    "content": f"Something went wrong while researching that: {e}. Try rephrasing or asking again.",
+                    "route": "error"
+                }
 
             if result["type"] == "clarification":
                 st.session_state["pending_state"] = result["pending_state"]
@@ -78,7 +98,7 @@ with tab_chat:
                 st.session_state.pop("pending_state", None)
 
             st.markdown(result["content"])
-            st.session_state.messages.append({"role": "assistant", "content": result["content"]})
+            st.session_state.messages.append({"role": "assistant", "content": result["content"], "thread_id": thread_id})
 
             caption_bits = [f"Route: {result.get('route', 'unknown')}"]
             if result["type"] == "clarification":
@@ -149,7 +169,7 @@ with tab_dashboard:
     holdings_df["ticker"] = holdings_df["ticker"].fillna("—")
     holdings_df["value_eur"] = holdings_df["value_eur"].apply(lambda v: f"€{v:,.2f}")
     st.dataframe(holdings_df, width='stretch', hide_index=True)
-    
+
     st.subheader("Concentration Alerts")
 
     alert_rows = []

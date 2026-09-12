@@ -319,7 +319,11 @@ actually appear in the provided data."""
 
 # --- Orchestrator ---
 
-def run_pipeline(question, pending_state=None):
+def run_pipeline(question, pending_state=None, on_progress=None):
+    def report(stage):
+        if on_progress:
+            on_progress(stage)
+
     if pending_state is not None:
         original_question = pending_state["question"]
         gathered_data = pending_state["gathered_data"]
@@ -331,8 +335,11 @@ def run_pipeline(question, pending_state=None):
             f"[User answered: {question}]"
         )
 
+        report("Re-planning with your answer...")
         plan = run_planner(combined_question, gathered_data)
         analysis_plan = plan.get("analysis_plan") or []
+
+        report("Writing the analysis...")
         answer, verdict = run_advisor_with_approval(combined_question, gathered_data, analysis_plan)
 
         return {
@@ -344,9 +351,11 @@ def run_pipeline(question, pending_state=None):
             "gathered_data": gathered_data
         }
 
+    report("Deciding how to approach this...")
     route = classify_query(question)
 
     if route == "SIMPLE":
+        report("Looking that up...")
         messages = [
             {"role": "system", "content": FRED_SYSTEM_PROMPT},
             {"role": "user", "content": question}
@@ -359,9 +368,11 @@ def run_pipeline(question, pending_state=None):
             "used_tools": used_tools
         }
 
+    report("Researching — gathering data...")
     research = run_researcher(question)
     gathered_data = research["gathered_data"]
 
+    report("Planning the analysis...")
     plan = run_planner(question, gathered_data)
 
     if plan.get("clarification_needed"):
@@ -377,6 +388,8 @@ def run_pipeline(question, pending_state=None):
         }
 
     analysis_plan = plan.get("analysis_plan") or []
+
+    report("Writing the analysis...")
     answer, verdict = run_advisor_with_approval(question, gathered_data, analysis_plan)
 
     return {
