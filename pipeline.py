@@ -1,7 +1,9 @@
 import json
+import re
 from agent import client
 from agent_claude import claude_client
 from tools import tool_functions, tools, call_groq_with_retry, filter_args_for_tool
+from agent import client, SYSTEM_PROMPT as FRED_SYSTEM_PROMPT
 
 # --- Triage ---
 
@@ -112,3 +114,204 @@ def run_researcher(question, max_iterations=4):
 
     summary = summarize_gathered_data(question, gathered)
     return {"summary": summary, "gathered_data": gathered}
+
+# Planner
+
+PLANNER_PROMPT_TEMPLATE = """You are a senior financial analyst's planning brain. Given a
+question and data already gathered about it, your job is to design the analytical
+outline a junior analyst (the Advisor) must follow to write a genuinely thorough,
+well-reasoned answer — NOT a generic checklist. Different questions need different
+analytical angles: think specifically about what THIS question and THIS data demand.
+
+First, check: is the question missing critical information needed to answer it well
+(e.g. unclear time horizon, unclear investment goal, ambiguous scope)? If so, don't
+build a plan — ask for clarification instead.
+
+If the question is answerable, identify the specific analytical angles a complete
+answer needs — these could be anything: sector-specific risks, an upcoming known
+catalyst, regulatory exposure, competitive dynamics, balance-sheet quality, whatever
+genuinely matters for THIS case. For each angle, note why it matters here specifically,
+and what additional data (if any) is still needed beyond what's already been gathered.
+
+Question: {question}
+
+Data already gathered:
+{gathered_data}
+
+Respond with ONLY valid JSON in exactly this shape, no other text:
+{{
+  "clarification_needed": true or false,
+  "clarifying_question": "<question to ask, or null>",
+  "analysis_plan": [
+    {{
+      "angle": "<the specific analytical angle, in your own words>",
+      "why_it_matters_for_this_question": "<reasoning>",
+      "data_still_needed": [{{"tool": "<tool name>", "args": {{}}}}]
+    }}
+  ]
+}}"""
+
+
+def run_planner(question, gathered_data):
+    prompt = PLANNER_PROMPT_TEMPLATE.format(
+        question=question,
+        gathered_data=json.dumps(gathered_data, indent=2)[:4000]
+    )
+
+    response = claude_client.messages.create(
+        model="claude-sonnet-4-5",
+        max_tokens=1500,
+        messages=[{"role": "user", "content": prompt}]
+    )
+
+    raw_text = response.content[0].text.strip()
+    raw_text = re.sub(r"^```json\s*|\s*```$", "", raw_text)
+
+    try:
+        return json.loads(raw_text)
+    except json.JSONDecodeError:
+        return {
+            "clarification_needed": False,
+            "clarifying_question": None,
+            "analysis_plan": [],
+            "parse_error": raw_text
+        }
+
+# --- Advisor ---
+
+def run_advisor(question, gathered_data, analysis_plan):
+    already_called = {
+        f"{g['tool']}({json.dumps(g['args'], sort_keys=True)})": g["result"]
+        for g in gathered_data
+    }
+
+    for item in analysis_plan:
+        for call in item.get("data_still_needed", []):
+            tool_name = call.get("tool")
+            args = filter_args_for_tool(tool_name, call.get("args", {}))
+            call_key = f"{tool_name}({json.dumps(args, sort_keys=True)})"
+
+            if call_key in already_called or tool_name not in tool_functions:
+                continue
+
+            try:
+                result = tool_functions[tool_name](**args)
+            except Exception as e:
+                result = {"error": f"Tool '{tool_name}' failed: {e}"}
+
+            already_called[call_key] = result
+            gathered_data.append({"tool": tool_name, "args": args, "result": result})
+
+    plan_text = "\n".join(
+        f"- {item['angle']}: {item['why_it_matters_for_this_question']}"
+        for item in analysis_plan
+    )
+
+    prompt = f"""Question: {question}
+
+Your senior analyst planner has identified these angles that must be covered:
+{plan_text}
+
+All available data:
+{json.dumps(gathered_data, indent=2)[:6000]}
+
+Write your full analysis, explicitly addressing each angle above, following your
+standard analytical rules (bull/bear cases, quantitative, portfolio-aware)."""
+
+    response = claude_client.messages.create(
+        model="claude-sonnet-4-5",
+        max_tokens=2000,
+        system=FRED_SYSTEM_PROMPT,
+        messages=[{"role": "user", "content": prompt}]
+    )
+
+    return "".join(block.text for block in response.content if block.type == "text")
+
+# --- Approver ---
+
+APPROVER_PROMPT_TEMPLATE = """You are a fact-checker reviewing a financial analyst's draft
+answer against the raw data it was supposed to be based on. Your ONLY job is catching
+inconsistencies — you are not judging style, tone, or whether the conclusion is wise.
+
+Look specifically for:
+- Numbers in the draft that don't match the retrieved data (wrong values, wrong units,
+  wrong order of magnitude)
+- Claims presented as fact that the retrieved data doesn't support
+- Internally contradictory statements within the draft
+
+Do NOT flag: reasonable rounding, reasonable interpretation of data, judgment calls,
+caveated estimates, or anything the draft itself explicitly marks as uncertain.
+
+Raw data that was available:
+{gathered_data}
+
+The draft answer:
+{draft}
+
+First, think through your review inside <thinking></thinking> tags. Then give your
+final verdict as a single JSON object AFTER the closing tag, in exactly this shape:
+{{
+  "approved": true or false,
+  "issues": ["<specific issue found>", ...]
+}}"""
+
+
+def extract_last_json(text):
+    matches = re.findall(r"\{.*?\}(?=\s*(?:```|$|\n\n))", text, re.DOTALL)
+    if not matches:
+        matches = re.findall(r"\{.*\}", text, re.DOTALL)
+    for candidate in reversed(matches):
+        try:
+            return json.loads(candidate)
+        except json.JSONDecodeError:
+            continue
+    return None
+
+
+def run_approver(gathered_data, draft):
+    prompt = APPROVER_PROMPT_TEMPLATE.format(
+        gathered_data=json.dumps(gathered_data, indent=2)[:6000],
+        draft=draft
+    )
+
+    response = claude_client.messages.create(
+        model="claude-sonnet-4-5",
+        max_tokens=1500,
+        messages=[{"role": "user", "content": prompt}],
+        extra_body={"temperature": 0}
+    )
+
+    raw_text = response.content[0].text.strip()
+    parsed = extract_last_json(raw_text)
+
+    if parsed is None or "approved" not in parsed:
+        print(f"Approver parse failed, failing open. Raw: {raw_text[:300]}", flush=True)
+        return {"approved": True, "issues": [], "parse_error": raw_text}
+
+    return parsed
+
+
+def run_advisor_with_approval(question, gathered_data, analysis_plan):
+    draft = run_advisor(question, gathered_data, analysis_plan)
+    verdict = run_approver(gathered_data, draft)
+
+    if verdict["approved"]:
+        return draft, verdict
+
+    issues_text = "\n".join(f"- {issue}" for issue in verdict["issues"])
+    correction_note = f"""
+
+IMPORTANT: A fact-checker reviewed your previous draft and found these issues:
+{issues_text}
+
+Rewrite your analysis correcting these specific problems. Use only figures that
+actually appear in the provided data."""
+
+    retry_draft = run_advisor(question + correction_note, gathered_data, analysis_plan)
+    retry_verdict = run_approver(gathered_data, retry_draft)
+
+    if retry_verdict["approved"]:
+        return retry_draft, retry_verdict
+
+    flagged = retry_draft + "\n\n---\n⚠️ **Unverified figures**: " + "; ".join(retry_verdict["issues"])
+    return flagged, retry_verdict
