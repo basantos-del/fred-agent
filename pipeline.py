@@ -4,6 +4,7 @@ from agent import client
 from agent_claude import claude_client
 from tools import tool_functions, tools, call_groq_with_retry, filter_args_for_tool
 from agent import client, SYSTEM_PROMPT as FRED_SYSTEM_PROMPT
+from agent import client, run_agent_turn, SYSTEM_PROMPT as FRED_SYSTEM_PROMPT
 
 # --- Triage ---
 
@@ -276,7 +277,7 @@ def run_approver(gathered_data, draft):
 
     response = claude_client.messages.create(
         model="claude-sonnet-4-5",
-        max_tokens=1500,
+        max_tokens=3000,
         messages=[{"role": "user", "content": prompt}],
         extra_body={"temperature": 0}
     )
@@ -315,3 +316,74 @@ actually appear in the provided data."""
 
     flagged = retry_draft + "\n\n---\n⚠️ **Unverified figures**: " + "; ".join(retry_verdict["issues"])
     return flagged, retry_verdict
+
+# --- Orchestrator ---
+
+def run_pipeline(question, pending_state=None):
+    if pending_state is not None:
+        original_question = pending_state["question"]
+        gathered_data = pending_state["gathered_data"]
+        clarifying_question = pending_state["clarifying_question"]
+
+        combined_question = (
+            f"{original_question}\n\n"
+            f"[Clarification asked: {clarifying_question}]\n"
+            f"[User answered: {question}]"
+        )
+
+        plan = run_planner(combined_question, gathered_data)
+        analysis_plan = plan.get("analysis_plan") or []
+        answer, verdict = run_advisor_with_approval(combined_question, gathered_data, analysis_plan)
+
+        return {
+            "type": "answer",
+            "content": answer,
+            "route": "complex (resumed)",
+            "plan": analysis_plan,
+            "approver_verdict": verdict,
+            "gathered_data": gathered_data
+        }
+
+    route = classify_query(question)
+
+    if route == "SIMPLE":
+        messages = [
+            {"role": "system", "content": FRED_SYSTEM_PROMPT},
+            {"role": "user", "content": question}
+        ]
+        answer, used_tools = run_agent_turn(messages)
+        return {
+            "type": "answer",
+            "content": answer,
+            "route": "simple",
+            "used_tools": used_tools
+        }
+
+    research = run_researcher(question)
+    gathered_data = research["gathered_data"]
+
+    plan = run_planner(question, gathered_data)
+
+    if plan.get("clarification_needed"):
+        return {
+            "type": "clarification",
+            "content": plan["clarifying_question"],
+            "route": "complex",
+            "pending_state": {
+                "question": question,
+                "gathered_data": gathered_data,
+                "clarifying_question": plan["clarifying_question"]
+            }
+        }
+
+    analysis_plan = plan.get("analysis_plan") or []
+    answer, verdict = run_advisor_with_approval(question, gathered_data, analysis_plan)
+
+    return {
+        "type": "answer",
+        "content": answer,
+        "route": "complex",
+        "plan": analysis_plan,
+        "approver_verdict": verdict,
+        "gathered_data": gathered_data
+    }
