@@ -22,6 +22,10 @@ and apply these rules:
   average is a value signal; meaningfully above is a premium that needs justifying.
 - Quality signals: ROE and gross margin meaningfully above peer average support a
   bull case; meaningfully below supports a bear case.
+- When comparing against peers, prefer the median over the mean: a single peer with
+  near-zero or negative earnings can distort an average P/E into a meaningless number.
+  Individual peer figures are available in per_peer_ratios — cite those directly rather
+  than inferring them from an average.
 - Leverage: debt-to-equity meaningfully above peer average is a risk flag.
 - Risk-adjust: a high-beta stock needs a stronger value/quality case to justify a
   positive lean than a low-beta one.

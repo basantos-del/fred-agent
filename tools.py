@@ -1,4 +1,4 @@
-\import os
+import os
 import json
 import requests
 import gspread #connection to portfolio
@@ -6,6 +6,7 @@ import voyageai #embedding_model
 import chromadb #vector_db
 import time
 import re
+import statistics
 
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
@@ -464,7 +465,7 @@ def get_peers(ticker):
 
 def get_peer_average_ratios(ticker):
     peers = get_peers(ticker)
-    all_ratios = [get_key_ratios(p) for p in peers]
+    per_peer = {p: get_key_ratios(p) for p in peers}
 
     numeric_keys = [
         "pe_ratio", "pb_ratio", "ps_ratio", "roe", "roa",
@@ -473,11 +474,22 @@ def get_peer_average_ratios(ticker):
     ]
 
     averages = {}
+    medians = {}
     for key in numeric_keys:
-        values = [r[key] for r in all_ratios if r.get(key) is not None]
-        averages[key] = round(sum(values) / len(values), 2) if values else None
+        values = [r[key] for r in per_peer.values() if r.get(key) is not None]
+        if values:
+            averages[key] = round(sum(values) / len(values), 2)
+            medians[key] = round(statistics.median(values), 2)
+        else:
+            averages[key] = None
+            medians[key] = None
 
-    return {"peers": peers, "peer_averages": averages}
+    return {
+        "peers": peers,
+        "peer_averages": averages,
+        "peer_medians": medians,
+        "per_peer_ratios": per_peer
+    }
 
 def evaluate_recommendation(ticker):
     try:
