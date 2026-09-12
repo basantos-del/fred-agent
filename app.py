@@ -1,4 +1,5 @@
 import streamlit as st
+from pipeline import run_pipeline
 
 st.set_page_config(page_title="Fred", layout="wide")
 
@@ -27,6 +28,7 @@ with tab_chat:
         st.session_state.messages = [
             {"role": "system", "content": SYSTEM_PROMPT}
         ]
+        st.session_state.pop("pending_state", None)
         st.rerun()
 
     st.write("**Quick questions:**")
@@ -61,15 +63,43 @@ with tab_chat:
         with st.chat_message("assistant"):
             with st.spinner("Thinking..."):
                 try:
-                    answer, used_tools = run_agent_turn(st.session_state.messages)
+                    pending = st.session_state.get("pending_state")
+                    result = run_pipeline(prompt, pending_state=pending)
                 except Exception as e:
-                    answer = f"Something went wrong while researching that: {e}. Try rephrasing or asking again."
-                    used_tools = []
+                    result = {
+                        "type": "answer",
+                        "content": f"Something went wrong while researching that: {e}. Try rephrasing or asking again.",
+                        "route": "error"
+                    }
 
-            st.markdown(answer)
-            if used_tools:
-                with st.expander(f"Fred used {len(used_tools)} tool call(s)"):
-                    for t in used_tools:
+            if result["type"] == "clarification":
+                st.session_state["pending_state"] = result["pending_state"]
+            else:
+                st.session_state.pop("pending_state", None)
+
+            st.markdown(result["content"])
+            st.session_state.messages.append({"role": "assistant", "content": result["content"]})
+
+            caption_bits = [f"Route: {result.get('route', 'unknown')}"]
+            if result["type"] == "clarification":
+                caption_bits.append("awaiting your answer")
+            st.caption(" · ".join(caption_bits))
+
+            if result.get("plan"):
+                with st.expander(f"Planner identified {len(result['plan'])} analytical angle(s)"):
+                    for item in result["plan"]:
+                        st.write(f"**{item['angle']}**")
+                        st.write(item["why_it_matters_for_this_question"])
+
+            verdict = result.get("approver_verdict")
+            if verdict and not verdict.get("approved"):
+                with st.expander("⚠️ Approver flagged issues"):
+                    for issue in verdict.get("issues", []):
+                        st.write(f"- {issue}")
+
+            if result.get("used_tools"):
+                with st.expander(f"Fred used {len(result['used_tools'])} tool call(s)"):
+                    for t in result["used_tools"]:
                         st.write(f"- `{t}`")
 
 with tab_dashboard:
