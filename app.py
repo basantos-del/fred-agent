@@ -7,11 +7,9 @@ from agent import run_agent_turn, SYSTEM_PROMPT
 from agent_claude import run_agent_turn_claude
 from pipeline import run_pipeline, run_coach
 from tools import (
-    get_portfolio_context,
-    log_portfolio_snapshot,
-    get_portfolio_history,
-    log_conversation_message,
-    log_feedback,
+    get_portfolio_context, log_portfolio_snapshot, get_portfolio_history,
+    log_conversation_message, log_feedback, get_all_feedback,
+    mark_feedback_addressed, log_coach_adoption, get_coach_log,
 )
 from eval import run_single_eval_case, GOLDEN_SET
 
@@ -369,7 +367,7 @@ with tab_eval:
 with tab_coach:
     st.subheader("Coach — Self-Improvement Review")
     st.caption(
-        "Reviews recent conversations and your feedback to propose improvements. "
+        "Reviews recent conversations and your unaddressed feedback to propose improvements. "
         "Proposals are never applied automatically — you decide what to adopt."
     )
 
@@ -407,3 +405,49 @@ with tab_coach:
         if coach.get("parse_error"):
             with st.expander("Raw output (parsing failed)"):
                 st.code(coach["parse_error"])
+
+    st.divider()
+    st.subheader("Mark feedback as addressed")
+    st.caption("Once you've added a proposal to SYSTEM_PROMPT or the golden set, mark the "
+               "feedback it came from so the Coach stops resurfacing it.")
+
+    pending_feedback = get_all_feedback()
+    if not pending_feedback:
+        st.success("✅ No unaddressed feedback.")
+    else:
+        selected_rows = []
+        for fb in pending_feedback:
+            checked = st.checkbox(
+                f"[{fb['timestamp']}] {fb['what_was_missing'][:120]}",
+                key=f"fbmark_{fb['row_number']}"
+            )
+            if checked:
+                selected_rows.append(fb["row_number"])
+
+        adoption_summary = st.text_area(
+            "What did you add? (logged as a record)",
+            placeholder="e.g. Added a SYSTEM_PROMPT line requiring explicit FX-risk commentary on USD holdings.",
+            key="adoption_summary"
+        )
+
+        if st.button("Mark selected as addressed"):
+            if not selected_rows:
+                st.warning("Select at least one feedback item.")
+            elif not adoption_summary.strip():
+                st.warning("Add a short summary of what you changed.")
+            else:
+                mark_feedback_addressed(selected_rows)
+                log_coach_adoption(adoption_summary, selected_rows)
+                st.success(f"Marked {len(selected_rows)} item(s) as addressed.")
+                st.rerun()
+
+    st.divider()
+    st.subheader("Adoption history")
+    log_entries = get_coach_log()
+    if not log_entries:
+        st.caption("Nothing adopted yet.")
+    else:
+        for entry in reversed(log_entries):
+            with st.container(border=True):
+                st.caption(f"{entry['timestamp']} · feedback rows {entry['rows']}")
+                st.write(entry["summary"])

@@ -634,22 +634,58 @@ def get_recent_conversations(limit_threads=10):
 
     return [r for r in rows if r["thread_id"] in thread_ids]
 
-
-def get_all_feedback():
+def get_all_feedback(include_addressed=False):
     ws = sheet.worksheet("Feedback")
     values = ws.get_all_values()
 
     feedback = []
-    for row in values[1:]:
+    for i, row in enumerate(values[1:], start=2):
         if not row or not row[0]:
             continue
+        addressed = (row[4].strip().lower() if len(row) > 4 else "") == "yes"
+        if addressed and not include_addressed:
+            continue
         feedback.append({
+            "row_number": i,
             "timestamp": row[0],
             "thread_id": row[1] if len(row) > 1 else "",
             "question": row[2] if len(row) > 2 else "",
-            "what_was_missing": row[3] if len(row) > 3 else ""
+            "what_was_missing": row[3] if len(row) > 3 else "",
+            "addressed": addressed
         })
     return feedback
+
+def mark_feedback_addressed(row_numbers):
+    ws = sheet.worksheet("Feedback")
+    for row_number in row_numbers:
+        try:
+            ws.update_cell(row_number, 5, "yes")
+        except Exception as e:
+            print(f"Failed to mark feedback row {row_number}: {e}", flush=True)
+
+
+def log_coach_adoption(summary, row_numbers):
+    try:
+        ws = sheet.worksheet("Coach Log")
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        ws.append_row([timestamp, summary[:10000], ", ".join(str(r) for r in row_numbers)])
+        return True
+    except Exception as e:
+        print(f"Failed to log coach adoption: {e}", flush=True)
+        return False
+
+
+def get_coach_log():
+    try:
+        ws = sheet.worksheet("Coach Log")
+        values = ws.get_all_values()
+        return [
+            {"timestamp": row[0], "summary": row[1] if len(row) > 1 else "", "rows": row[2] if len(row) > 2 else ""}
+            for row in values[1:] if row and row[0]
+        ]
+    except Exception as e:
+        print(f"Failed to read coach log: {e}", flush=True)
+        return []
 
 tool_functions = {
     "get_stock_price": get_stock_price,
