@@ -6,7 +6,13 @@ st.set_page_config(page_title="Fred", layout="wide")
 from agent import run_agent_turn, SYSTEM_PROMPT
 from agent_claude import run_agent_turn_claude
 from pipeline import run_pipeline
-from tools import get_portfolio_context, log_portfolio_snapshot, get_portfolio_history
+from tools import (
+    get_portfolio_context,
+    log_portfolio_snapshot,
+    get_portfolio_history,
+    log_conversation_message,
+    log_feedback,
+)
 from eval import run_single_eval_case, GOLDEN_SET
 
 st.title("Hi,Bernardo! Let's get your finances up and running")
@@ -81,6 +87,26 @@ with tab_chat:
                         with st.expander("📋 Copy this response"):
                             st.code(content, language=None)
 
+                        with st.expander("💬 What was missing from this answer?"):
+                            fb_key = f"fb_{thread_id}_{id(msg)}"
+                            fb_text = st.text_area(
+                                "Feedback",
+                                key=fb_key,
+                                label_visibility="collapsed",
+                                placeholder="What angle would you have liked to see that Fred didn't cover?"
+                            )
+                            if st.button("Submit feedback", key=f"submit_{fb_key}"):
+                                if fb_text.strip():
+                                    q = next(
+                                        (m["content"] for m in group
+                                         if (m["role"] if isinstance(m, dict) else m.role) == "user"),
+                                        ""
+                                    )
+                                    if log_feedback(thread_id, q, fb_text):
+                                        st.success("Feedback saved — the Coach will review it.")
+                                    else:
+                                        st.error("Couldn't save feedback.")
+
                     if isinstance(msg, dict) and msg.get("meta"):
                         meta = msg["meta"]
                         if meta.get("route"):
@@ -123,6 +149,8 @@ with tab_chat:
             st.session_state["current_thread_id"] = thread_id
 
         st.session_state.messages.append({"role": "user", "content": prompt, "thread_id": thread_id})
+        log_conversation_message(thread_id, "user", prompt)
+
         with st.chat_message("user"):
             st.markdown(prompt)
 
@@ -163,8 +191,20 @@ with tab_chat:
             "thread_id": thread_id,
             "meta": meta
         })
+        log_conversation_message(thread_id, "assistant", result["content"], result.get("route", ""))
 
         st.rerun()
+
+    if st.session_state.get("messages") and len(st.session_state["messages"]) > 1:
+        st.components.v1.html(
+            """
+            <script>
+                const doc = window.parent.document;
+                doc.querySelector('section.main')?.scrollTo(0, doc.querySelector('section.main').scrollHeight);
+            </script>
+            """,
+            height=0
+        )
 
 with tab_dashboard:
     import pandas as pd

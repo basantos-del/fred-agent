@@ -589,6 +589,68 @@ def get_exchange_rate(from_currency="USD", to_currency="EUR"):
 
     return None
 
+def log_conversation_message(thread_id, role, content, route=""):
+    try:
+        ws = sheet.worksheet("Conversations")
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        ws.append_row([timestamp, str(thread_id), role, content[:45000], route])
+    except Exception as e:
+        print(f"Failed to log conversation: {e}", flush=True)
+
+
+def log_feedback(thread_id, question, what_was_missing):
+    try:
+        ws = sheet.worksheet("Feedback")
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        ws.append_row([timestamp, str(thread_id), question[:5000], what_was_missing[:5000]])
+        return True
+    except Exception as e:
+        print(f"Failed to log feedback: {e}", flush=True)
+        return False
+
+
+def get_recent_conversations(limit_threads=10):
+    ws = sheet.worksheet("Conversations")
+    values = ws.get_all_values()
+
+    rows = []
+    for row in values[1:]:
+        if not row or not row[0]:
+            continue
+        rows.append({
+            "timestamp": row[0],
+            "thread_id": row[1] if len(row) > 1 else "",
+            "role": row[2] if len(row) > 2 else "",
+            "content": row[3] if len(row) > 3 else "",
+            "route": row[4] if len(row) > 4 else ""
+        })
+
+    thread_ids = []
+    for r in reversed(rows):
+        if r["thread_id"] not in thread_ids:
+            thread_ids.append(r["thread_id"])
+        if len(thread_ids) >= limit_threads:
+            break
+
+    return [r for r in rows if r["thread_id"] in thread_ids]
+
+
+def get_all_feedback():
+    ws = sheet.worksheet("Feedback")
+    values = ws.get_all_values()
+
+    feedback = []
+    for row in values[1:]:
+        if not row or not row[0]:
+            continue
+        feedback.append({
+            "timestamp": row[0],
+            "thread_id": row[1] if len(row) > 1 else "",
+            "question": row[2] if len(row) > 2 else "",
+            "what_was_missing": row[3] if len(row) > 3 else ""
+        })
+    return feedback
+
 tool_functions = {
     "get_stock_price": get_stock_price,
     "get_market_cap": get_market_cap,
