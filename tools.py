@@ -56,6 +56,17 @@ def _get_fund_value_lookup():
     holdings = get_portfolio()
     return {h["name"]: h["value_eur"] for h in holdings}
 
+def ticker_exists(ticker):
+    try:
+        url = "https://finnhub.io/api/v1/quote"
+        params = {"symbol": ticker, "token": finnhub_key}
+        response = requests.get(url, params=params, timeout=10)
+        data = response.json()
+        return bool(data.get("c"))
+    except Exception as e:
+        print(f"Ticker existence check failed for {ticker}: {e}", flush=True)
+        return True
+
 def get_fund_lookthrough_sectors(fund_values):
     ws = sheet.worksheet("Fund Look-Through")
     values = ws.get_all_values()
@@ -383,9 +394,18 @@ def get_filing_context(ticker, question):
     existing = filings_collection.get(where={"ticker": ticker}, limit=1)
 
     if not existing["ids"]:
+        if not ticker_exists(ticker):
+            return [f"No data found for ticker '{ticker}' — it may not be a valid or listed US ticker."]
+
         print(f"No filing stored for {ticker} yet — ingesting now, this will take a few minutes...", flush=True)
         cik = get_cik(ticker)
+        if cik is None:
+            return [f"No SEC filings found for ticker '{ticker}' — it may not be a US-listed company."]
+
         filing_url = get_latest_10k_url(cik)
+        if filing_url is None:
+            return [f"No 10-K filing found for ticker '{ticker}'."]
+
         text = fetch_filing_text(filing_url)
         chunks = chunk_text(text)
         embeddings = embed_chunks(chunks)
@@ -542,15 +562,32 @@ def filter_args_for_tool(function_name, args):
     return {k: v for k, v in args.items() if k in valid_params}
 
 def get_exchange_rate(from_currency="USD", to_currency="EUR"):
-    url = "https://finnhub.io/api/v1/forex/rates"
-    params = {"base": from_currency, "token": finnhub_key}
-    response = requests.get(url, params=params)
-    data = response.json()
-    quote = data.get("quote")
-    if quote is None:
-        print(f"Warning: no exchange rate quote returned. Raw response: {data}", flush=True)
-        return None
-    return quote.get(to_currency)
+    # Primary: dedicated free FX API
+    try:
+        url = f"https://api.frankfurter.app/latest"
+        params = {"from": from_currency, "to": to_currency}
+        response = requests.get(url, params=params, timeout=10)
+        data = response.json()
+        rate = data.get("rates", {}).get(to_currency)
+        if rate is not None:
+            return rate
+    except Exception as e:
+        print(f"Frankfurter FX lookup failed: {e}", flush=True)
+
+    # Fallback: Finnhub (may be gated depending on plan)
+    try:
+        url = "https://finnhub.io/api/v1/forex/rates"
+        params = {"base": from_currency, "token": finnhub_key}
+        response = requests.get(url, params=params, timeout=10)
+        data = response.json()
+        quote = data.get("quote")
+        if quote is not None:
+            return quote.get(to_currency)
+        print(f"Finnhub FX unavailable: {data}", flush=True)
+    except Exception as e:
+        print(f"Finnhub FX lookup failed: {e}", flush=True)
+
+    return None
 
 tool_functions = {
     "get_stock_price": get_stock_price,
