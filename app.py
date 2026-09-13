@@ -60,8 +60,22 @@ with tab_chat:
                 with st.chat_message(role):
                     st.markdown(content)
 
-    typed_prompt = st.chat_input("Ask Fred something...")
-    prompt = typed_prompt or quick_prompt
+            is_last_thread = (group[-1] is displayable[-1])
+            if is_last_thread and st.session_state.get("pending_state"):
+                st.markdown("**Answer to Fred:**")
+                follow_up = st.text_input(
+                    "Your answer",
+                    key=f"followup_{thread_id}",
+                    label_visibility="collapsed",
+                    placeholder="Answer Fred's question here..."
+                )
+                if st.button("Send answer", key=f"send_followup_{thread_id}"):
+                    if follow_up.strip():
+                        st.session_state["submitted_prompt"] = follow_up
+                        st.rerun()
+
+    typed_prompt = st.chat_input("Ask Fred something new...")
+    prompt = st.session_state.pop("submitted_prompt", None) or typed_prompt or quick_prompt
 
     if prompt:
         if st.session_state.get("pending_state"):
