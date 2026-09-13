@@ -60,6 +60,24 @@ with tab_chat:
                 with st.chat_message(role):
                     st.markdown(content)
 
+                    if isinstance(msg, dict) and msg.get("meta"):
+                        meta = msg["meta"]
+                        if meta.get("route"):
+                            st.caption(f"Route: {meta['route']}")
+                        if meta.get("plan"):
+                            with st.expander(f"Planner identified {len(meta['plan'])} analytical angle(s)"):
+                                for item in meta["plan"]:
+                                    st.write(f"**{item['angle']}**")
+                                    st.write(item["why_it_matters_for_this_question"])
+                        if meta.get("issues"):
+                            with st.expander("⚠️ Approver flagged issues"):
+                                for issue in meta["issues"]:
+                                    st.write(f"- {issue}")
+                        if meta.get("used_tools"):
+                            with st.expander(f"Fred used {len(meta['used_tools'])} tool call(s)"):
+                                for t in meta["used_tools"]:
+                                    st.write(f"- `{t}`")
+
             is_last_thread = (group[-1] is displayable[-1])
             if is_last_thread and st.session_state.get("pending_state"):
                 st.markdown("**Answer to Fred:**")
@@ -106,35 +124,27 @@ with tab_chat:
                     "route": "error"
                 }
 
-            if result["type"] == "clarification":
-                st.session_state["pending_state"] = result["pending_state"]
-            else:
-                st.session_state.pop("pending_state", None)
+        if result["type"] == "clarification":
+            st.session_state["pending_state"] = result["pending_state"]
+        else:
+            st.session_state.pop("pending_state", None)
 
-            st.markdown(result["content"])
-            st.session_state.messages.append({"role": "assistant", "content": result["content"], "thread_id": thread_id})
+        verdict = result.get("approver_verdict") or {}
+        meta = {
+            "route": result.get("route"),
+            "plan": result.get("plan"),
+            "issues": None if verdict.get("approved", True) else verdict.get("issues"),
+            "used_tools": result.get("used_tools")
+        }
 
-            caption_bits = [f"Route: {result.get('route', 'unknown')}"]
-            if result["type"] == "clarification":
-                caption_bits.append("awaiting your answer")
-            st.caption(" · ".join(caption_bits))
+        st.session_state.messages.append({
+            "role": "assistant",
+            "content": result["content"],
+            "thread_id": thread_id,
+            "meta": meta
+        })
 
-            if result.get("plan"):
-                with st.expander(f"Planner identified {len(result['plan'])} analytical angle(s)"):
-                    for item in result["plan"]:
-                        st.write(f"**{item['angle']}**")
-                        st.write(item["why_it_matters_for_this_question"])
-
-            verdict = result.get("approver_verdict")
-            if verdict and not verdict.get("approved"):
-                with st.expander("⚠️ Approver flagged issues"):
-                    for issue in verdict.get("issues", []):
-                        st.write(f"- {issue}")
-
-            if result.get("used_tools"):
-                with st.expander(f"Fred used {len(result['used_tools'])} tool call(s)"):
-                    for t in result["used_tools"]:
-                        st.write(f"- `{t}`")
+        st.rerun()
 
 with tab_dashboard:
     import pandas as pd
