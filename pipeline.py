@@ -7,15 +7,26 @@ from tools import tool_functions, tools, call_groq_with_retry, filter_args_for_t
 
 # --- Shared helpers ---
 
-def summarize_for_prompt(gathered_data, per_item_limit=2500):
+def summarize_for_prompt(gathered_data, per_key_limit=1200):
     compact = []
     for g in gathered_data:
-        result_str = json.dumps(g["result"], indent=2)
-        if len(result_str) > per_item_limit:
-            result_str = result_str[:per_item_limit] + f"\n... [truncated, {len(result_str)} chars total]"
-        compact.append(f"### {g['tool']}({json.dumps(g['args'])})\n{result_str}")
-    return "\n\n".join(compact)
+        result = g["result"]
+        header = f"### {g['tool']}({json.dumps(g['args'])})"
 
+        if isinstance(result, dict):
+            parts = []
+            for key, value in result.items():
+                value_str = json.dumps(value, indent=2)
+                if len(value_str) > per_key_limit:
+                    value_str = value_str[:per_key_limit] + f"\n... [truncated, {len(value_str)} chars total]"
+                parts.append(f"**{key}**:\n{value_str}")
+            body = "\n\n".join(parts)
+        else:
+            body = json.dumps(result, indent=2)[:per_key_limit]
+
+        compact.append(f"{header}\n{body}")
+
+    return "\n\n".join(compact)
 
 def extract_last_json(text):
     matches = re.findall(r"\{.*?\}(?=\s*(?:```|$|\n\n))", text, re.DOTALL)
