@@ -2,8 +2,10 @@ import json
 import re
 from agent import client, run_agent_turn, SYSTEM_PROMPT as FRED_SYSTEM_PROMPT
 from agent_claude import claude_client
-from tools import tool_functions, tools, call_groq_with_retry, filter_args_for_tool
-
+from tools import (
+    tool_functions, tools, call_groq_with_retry, filter_args_for_tool,
+    get_recent_conversations, get_all_feedback
+)
 
 # --- Shared helpers ---
 
@@ -429,3 +431,88 @@ def run_pipeline(question, pending_state=None, on_progress=None):
         "approver_verdict": verdict,
         "gathered_data": gathered_data
     }
+
+# --- Coach ---
+
+COACH_PROMPT_TEMPLATE = """You are reviewing how a financial analyst AI ("Fred") has been
+performing, to propose concrete improvements. You have two inputs: recent conversation
+transcripts, and explicit user feedback about what was missing from specific answers.
+
+Your job is to find PATTERNS, not one-off complaints — things that recur, or that reveal
+a systematic gap in how Fred approaches questions. Then propose specific, actionable
+changes.
+
+Two kinds of proposal:
+1. SYSTEM_PROMPT changes — a new rule or adjusted instruction for how Fred should analyze
+   or respond. Quote the exact line you'd add.
+2. EVAL_CASE additions — a new golden-set test case that would catch this gap in future.
+   Give the question and the pass criteria.
+
+Be conservative: propose only changes you can justify from the evidence below. If there
+isn't enough evidence for a pattern, say so rather than inventing proposals.
+
+Recent conversations:
+{conversations}
+
+User feedback:
+{feedback}
+
+Respond with ONLY valid JSON in exactly this shape:
+{{
+  "patterns_observed": ["<pattern you noticed, with evidence>", ...],
+  "proposed_prompt_changes": [
+    {{"rationale": "<why>", "suggested_line": "<exact line to add to SYSTEM_PROMPT>"}}
+  ],
+  "proposed_eval_cases": [
+    {{"rationale": "<why>", "question": "<test question>", "criteria": "<pass criteria>"}}
+  ],
+  "insufficient_evidence": true or false
+}}"""
+
+
+def run_coach(limit_threads=10):
+    conversations = get_recent_conversations(limit_threads=limit_threads)
+    feedback = get_all_feedback()
+
+    if not conversations and not feedback:
+        return {
+            "patterns_observed": [],
+            "proposed_prompt_changes": [],
+            "proposed_eval_cases": [],
+            "insufficient_evidence": True,
+            "note": "No conversations or feedback logged yet."
+        }
+
+    convo_text = "\n\n".join(
+        f"[Thread {c['thread_id']}] {c['role']}: {c['content'][:1500]}"
+        for c in conversations
+    )
+    feedback_text = "\n\n".join(
+        f"[Thread {f['thread_id']}] Question: {f['question'][:500]}\nWhat was missing: {f['what_was_missing']}"
+        for f in feedback
+    ) or "(no explicit feedback submitted yet)"
+
+    prompt = COACH_PROMPT_TEMPLATE.format(
+        conversations=convo_text[:20000],
+        feedback=feedback_text[:8000]
+    )
+
+    response = claude_client.messages.create(
+        model="claude-sonnet-4-5",
+        max_tokens=3000,
+        messages=[{"role": "user", "content": prompt}]
+    )
+
+    raw_text = response.content[0].text.strip()
+    parsed = extract_last_json(raw_text)
+
+    if parsed is None:
+        return {
+            "patterns_observed": [],
+            "proposed_prompt_changes": [],
+            "proposed_eval_cases": [],
+            "insufficient_evidence": True,
+            "parse_error": raw_text
+        }
+
+    return parsed

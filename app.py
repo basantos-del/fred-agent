@@ -5,7 +5,7 @@ st.set_page_config(page_title="Fred", layout="wide")
 
 from agent import run_agent_turn, SYSTEM_PROMPT
 from agent_claude import run_agent_turn_claude
-from pipeline import run_pipeline
+from pipeline import run_pipeline, run_coach
 from tools import (
     get_portfolio_context,
     log_portfolio_snapshot,
@@ -23,7 +23,9 @@ def get_cached_portfolio_context():
     return get_portfolio_context()
 
 
-tab_chat, tab_dashboard, tab_compare, tab_eval = st.tabs(["Chat", "Dashboard", "Model Comparison", "Eval"])
+tab_chat, tab_dashboard, tab_compare, tab_eval, tab_coach = st.tabs(
+    ["Chat", "Dashboard", "Model Comparison", "Eval", "Coach"]
+)
 
 with tab_chat:
     if "messages" not in st.session_state:
@@ -363,3 +365,45 @@ with tab_eval:
                 st.write(f"**Tools used:** {', '.join(r['used_tools']) if r['used_tools'] else 'none'}")
                 st.write(f"**Judge verdict:** {r['verdict']}")
                 st.write(f"**Judge reasoning:** {r['reasoning']}")
+
+with tab_coach:
+    st.subheader("Coach — Self-Improvement Review")
+    st.caption(
+        "Reviews recent conversations and your feedback to propose improvements. "
+        "Proposals are never applied automatically — you decide what to adopt."
+    )
+
+    if st.button("Run Coach review"):
+        with st.spinner("Reviewing conversations and feedback..."):
+            st.session_state["coach_result"] = run_coach()
+
+    coach = st.session_state.get("coach_result")
+    if coach:
+        if coach.get("insufficient_evidence"):
+            st.info("Not enough evidence yet to propose meaningful changes.")
+            if coach.get("note"):
+                st.caption(coach["note"])
+
+        if coach.get("patterns_observed"):
+            st.write("**Patterns observed:**")
+            for p in coach["patterns_observed"]:
+                st.write(f"- {p}")
+
+        if coach.get("proposed_prompt_changes"):
+            st.write("**Proposed SYSTEM_PROMPT additions:**")
+            for change in coach["proposed_prompt_changes"]:
+                with st.container(border=True):
+                    st.write(f"_{change['rationale']}_")
+                    st.code(change["suggested_line"], language=None)
+
+        if coach.get("proposed_eval_cases"):
+            st.write("**Proposed new eval cases:**")
+            for case in coach["proposed_eval_cases"]:
+                with st.container(border=True):
+                    st.write(f"_{case['rationale']}_")
+                    st.write(f"**Question:** {case['question']}")
+                    st.write(f"**Criteria:** {case['criteria']}")
+
+        if coach.get("parse_error"):
+            with st.expander("Raw output (parsing failed)"):
+                st.code(coach["parse_error"])
