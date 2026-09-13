@@ -53,12 +53,33 @@ with tab_chat:
 
     for thread_id, group in groupby(displayable, key=lambda m: m.get("thread_id", 0) if isinstance(m, dict) else 0):
         group = list(group)
-        with st.container(border=True):
+        is_last_thread = (group[-1] is displayable[-1])
+
+        first_user_msg = next(
+            (m for m in group if (m["role"] if isinstance(m, dict) else m.role) == "user"),
+            None
+        )
+        if first_user_msg is not None:
+            label_text = first_user_msg["content"] if isinstance(first_user_msg, dict) else first_user_msg.content
+        else:
+            label_text = "Conversation"
+
+        if len(label_text) > 70:
+            label_text = label_text[:70] + "..."
+
+        awaiting = is_last_thread and st.session_state.get("pending_state")
+        label = f"{'❓ ' if awaiting else ''}{label_text}"
+
+        with st.expander(label, expanded=is_last_thread):
             for msg in group:
                 role = msg["role"] if isinstance(msg, dict) else msg.role
                 content = msg.get("content") if isinstance(msg, dict) else msg.content
                 with st.chat_message(role):
                     st.markdown(content)
+
+                    if role == "assistant":
+                        with st.expander("📋 Copy this response"):
+                            st.code(content, language=None)
 
                     if isinstance(msg, dict) and msg.get("meta"):
                         meta = msg["meta"]
@@ -78,8 +99,7 @@ with tab_chat:
                                 for t in meta["used_tools"]:
                                     st.write(f"- `{t}`")
 
-            is_last_thread = (group[-1] is displayable[-1])
-            if is_last_thread and st.session_state.get("pending_state"):
+            if awaiting:
                 st.markdown("**Answer to Fred:**")
                 follow_up = st.text_input(
                     "Your answer",
