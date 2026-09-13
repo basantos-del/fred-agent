@@ -1,10 +1,33 @@
 import json
 import re
-from agent import client
+from agent import client, run_agent_turn, SYSTEM_PROMPT as FRED_SYSTEM_PROMPT
 from agent_claude import claude_client
 from tools import tool_functions, tools, call_groq_with_retry, filter_args_for_tool
-from agent import client, SYSTEM_PROMPT as FRED_SYSTEM_PROMPT
-from agent import client, run_agent_turn, SYSTEM_PROMPT as FRED_SYSTEM_PROMPT
+
+
+# --- Shared helpers ---
+
+def summarize_for_prompt(gathered_data, per_item_limit=2500):
+    compact = []
+    for g in gathered_data:
+        result_str = json.dumps(g["result"], indent=2)
+        if len(result_str) > per_item_limit:
+            result_str = result_str[:per_item_limit] + f"\n... [truncated, {len(result_str)} chars total]"
+        compact.append(f"### {g['tool']}({json.dumps(g['args'])})\n{result_str}")
+    return "\n\n".join(compact)
+
+
+def extract_last_json(text):
+    matches = re.findall(r"\{.*?\}(?=\s*(?:```|$|\n\n))", text, re.DOTALL)
+    if not matches:
+        matches = re.findall(r"\{.*\}", text, re.DOTALL)
+    for candidate in reversed(matches):
+        try:
+            return json.loads(candidate)
+        except json.JSONDecodeError:
+            continue
+    return None
+
 
 # --- Triage ---
 
@@ -45,11 +68,10 @@ def summarize_gathered_data(question, gathered):
     if not gathered:
         return "No data was gathered."
 
-    data_str = json.dumps(gathered, indent=2)[:4000]
     prompt = f"""Question: {question}
 
 Data gathered by tool calls:
-{data_str}
+{summarize_for_prompt(gathered)}
 
 Write a ONE-LINE summary of what data was gathered (not an analysis, not a recommendation)."""
 
@@ -116,7 +138,8 @@ def run_researcher(question, max_iterations=4):
     summary = summarize_gathered_data(question, gathered)
     return {"summary": summary, "gathered_data": gathered}
 
-# Planner
+
+# --- Planner ---
 
 PLANNER_PROMPT_TEMPLATE = """You are a senior financial analyst's planning brain. Given a
 question and data already gathered about it, your job is to design the analytical
@@ -126,7 +149,8 @@ analytical angles: think specifically about what THIS question and THIS data dem
 
 First, check: is the question missing critical information needed to answer it well
 (e.g. unclear time horizon, unclear investment goal, ambiguous scope)? If so, don't
-build a plan — ask for clarification instead.
+build a plan — ask for clarification instead. Do NOT ask about anything already
+present in the gathered data below.
 
 If the question is answerable, identify the specific analytical angles a complete
 answer needs — these could be anything: sector-specific risks, an upcoming known
@@ -156,7 +180,7 @@ Respond with ONLY valid JSON in exactly this shape, no other text:
 def run_planner(question, gathered_data):
     prompt = PLANNER_PROMPT_TEMPLATE.format(
         question=question,
-        gathered_data=json.dumps(gathered_data, indent=2)[:4000]
+        gathered_data=summarize_for_prompt(gathered_data)
     )
 
     response = claude_client.messages.create(
@@ -171,12 +195,16 @@ def run_planner(question, gathered_data):
     try:
         return json.loads(raw_text)
     except json.JSONDecodeError:
+        parsed = extract_last_json(raw_text)
+        if parsed:
+            return parsed
         return {
             "clarification_needed": False,
             "clarifying_question": None,
             "analysis_plan": [],
             "parse_error": raw_text
         }
+
 
 # --- Advisor ---
 
@@ -214,7 +242,7 @@ Your senior analyst planner has identified these angles that must be covered:
 {plan_text}
 
 All available data:
-{json.dumps(gathered_data, indent=2)[:6000]}
+{summarize_for_prompt(gathered_data)}
 
 Write your full analysis, explicitly addressing each angle above, following your
 standard analytical rules (bull/bear cases, quantitative, portfolio-aware)."""
@@ -227,6 +255,7 @@ standard analytical rules (bull/bear cases, quantitative, portfolio-aware)."""
     )
 
     return "".join(block.text for block in response.content if block.type == "text")
+
 
 # --- Approver ---
 
@@ -257,21 +286,9 @@ final verdict as a single JSON object AFTER the closing tag, in exactly this sha
 }}"""
 
 
-def extract_last_json(text):
-    matches = re.findall(r"\{.*?\}(?=\s*(?:```|$|\n\n))", text, re.DOTALL)
-    if not matches:
-        matches = re.findall(r"\{.*\}", text, re.DOTALL)
-    for candidate in reversed(matches):
-        try:
-            return json.loads(candidate)
-        except json.JSONDecodeError:
-            continue
-    return None
-
-
 def run_approver(gathered_data, draft):
     prompt = APPROVER_PROMPT_TEMPLATE.format(
-        gathered_data=json.dumps(gathered_data, indent=2)[:6000],
+        gathered_data=summarize_for_prompt(gathered_data),
         draft=draft
     )
 
@@ -316,6 +333,7 @@ actually appear in the provided data."""
 
     flagged = retry_draft + "\n\n---\n⚠️ **Unverified figures**: " + "; ".join(retry_verdict["issues"])
     return flagged, retry_verdict
+
 
 # --- Orchestrator ---
 
