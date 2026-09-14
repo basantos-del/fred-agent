@@ -3,7 +3,7 @@ from itertools import groupby
 
 st.set_page_config(page_title="Fred", layout="wide")
 
-from datetime imoport datetime
+from datetime import datetime
 from agent import run_agent_turn, SYSTEM_PROMPT
 from agent_claude import run_agent_turn_claude
 from pipeline import run_pipeline, run_coach
