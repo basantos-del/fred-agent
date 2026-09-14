@@ -370,6 +370,38 @@ def embed_chunks(chunks, batch_size=20, delay=21):
 
     return all_embeddings
 
+#Reranker
+
+def _rerank_with_retry(query, documents, model="rerank-3", top_k=None):
+    while True:
+        try:
+            return voyage_client.rerank(query, documents, model=model, top_k=top_k)
+        except RateLimitError:
+            print("Rerank rate limited, waiting 60s...", flush=True)
+            time.sleep(60)
+
+def query_filings(ticker, query, n_candidates=15, n_results=3):
+    query_embedding = _embed_with_retry([query], input_type="query")
+    results = filings_collection.query(
+        query_embeddings=query_embedding.embeddings,
+        n_results=n_candidates,
+        where={"ticker": ticker}
+    )
+    candidates = results["documents"][0]
+
+    if not candidates:
+        return []
+
+    reranked = _rerank_with_retry(query, candidates, model="rerank-3", top_k=n_results)
+    # Voyage docs say results come back sorted by relevance_score desc already;
+    # sorting explicitly costs nothing and removes the dependency on that being true forever.
+    ranked_results = sorted(reranked.results, key=lambda r: r.relevance_score, reverse=True)
+
+    return [
+        {"text": r.document, "relevance_score": round(r.relevance_score, 4)}
+        for r in ranked_results
+    ]
+
 def store_filing_chunks(ticker, chunks, embeddings):
     ids = [f"{ticker}_{i}" for i in range(len(chunks))]
     metadatas = [{"ticker": ticker} for _ in chunks]
@@ -381,37 +413,33 @@ def store_filing_chunks(ticker, chunks, embeddings):
         metadatas=metadatas
     )
 
-def query_filings(ticker, query, n_results=3):
-    query_embedding = _embed_with_retry([query], input_type="query")
-    results = filings_collection.query(
-        query_embeddings=query_embedding.embeddings,
-        n_results=n_results,
-        where={"ticker": ticker}
-    )
-    return results["documents"][0]
-
 def get_filing_context(ticker, question):
     existing = filings_collection.get(where={"ticker": ticker}, limit=1)
 
     if not existing["ids"]:
         if not ticker_exists(ticker):
-            return [f"No data found for ticker '{ticker}' — it may not be a valid or listed US ticker."]
+            return {"error": f"No data found for ticker '{ticker}' — it may not be a valid or listed US ticker."}
 
         print(f"No filing stored for {ticker} yet — ingesting now, this will take a few minutes...", flush=True)
         cik = get_cik(ticker)
         if cik is None:
-            return [f"No SEC filings found for ticker '{ticker}' — it may not be a US-listed company."]
+            return {"error": f"No SEC filings found for ticker '{ticker}' — it may not be a US-listed company."}
 
         filing_url = get_latest_10k_url(cik)
         if filing_url is None:
-            return [f"No 10-K filing found for ticker '{ticker}'."]
+            return {"error": f"No 10-K filing found for ticker '{ticker}'."}
 
         text = fetch_filing_text(filing_url)
         chunks = chunk_text(text)
         embeddings = embed_chunks(chunks)
         store_filing_chunks(ticker, chunks, embeddings)
 
-    return query_filings(ticker, question)
+    passages = query_filings(ticker, question)
+    if not passages:
+        return {"error": f"No relevant passages found in {ticker}'s 10-K for this question."}
+
+    # One top-level key per passage — see explanation below, this isn't cosmetic.
+    return {f"passage_{i+1}": p for i, p in enumerate(passages)}
 
 def fetch_raw_news(ticker, days_back=7):
     end = datetime.now()
