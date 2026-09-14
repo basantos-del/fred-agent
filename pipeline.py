@@ -319,10 +319,14 @@ Skip qualitative claims (opinions, trends with no number, risk narratives).
 For each claim, give:
 - "text": the exact phrase from the draft
 - "value": the bare number as a float (strip $, %, "x", commas — "32.1x" -> 32.1, "$3.2 billion" -> 3200000000)
-- "derived": true if this looks like something the analyst calculated (a growth rate, a
-  percentage of a total, a currency conversion, a sum/difference of other figures) rather
-  than a value that would appear as-is in a raw data source; false if it looks directly
-  quoted (a ratio, price, margin, or count that would appear verbatim in a data source)
+- "derived": true ONLY if the ANALYST appears to have calculated this number themselves —
+  a growth rate, a percentage-of-a-total, a currency conversion, a sum/difference of other
+  figures in the draft. false if the number would appear as a raw field in a data source,
+  even if that field is itself a statistic — a peer median, a peer average, a ratio, a price,
+  a margin, or a count are all "false" (directly sourced), because a data-gathering tool
+  computes and returns them as-is; the analyst didn't calculate them, they're just reading
+  a number off a report. Only mark "derived" when the ANALYST did the arithmetic inline in
+  this draft, not when a metric happens to be a statistical aggregate.
 
 Draft:
 {draft}
