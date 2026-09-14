@@ -235,26 +235,121 @@ def run_planner(question, gathered_data):
 
 # --- Advisor ---
 
-def run_advisor(question, gathered_data, analysis_plan):
+BULL_PROMPT_TEMPLATE = """You are the Bull advocate on a two-analyst debate team analyzing
+a financial question. Your ONLY job is to build the strongest possible case FOR a
+positive/bullish view — you are not being asked to be balanced, that's what synthesis
+is for. A Bear advocate is building the opposing case in parallel; a neutral synthesizer
+will weigh both afterward.
+
+Be quantitative and specific — cite real numbers from the data below, not vague optimism.
+Do not soften your case or pre-empt counterarguments; argue it as strongly as the data
+actually supports. If the data doesn't support a strong bull case, say so honestly rather
+than manufacturing one — your credibility in the debate depends on not overreaching.
+
+Question: {question}
+
+Analytical angles identified as relevant:
+{plan_text}
+
+All available data:
+{gathered_data}
+
+Write the bull case."""
+
+BEAR_PROMPT_TEMPLATE = """You are the Bear advocate on a two-analyst debate team analyzing
+a financial question. Your ONLY job is to build the strongest possible case AGAINST a
+positive view — you are not being asked to be balanced, that's what synthesis is for.
+A Bull advocate is building the opposing case in parallel; a neutral synthesizer will
+weigh both afterward.
+
+Be quantitative and specific — cite real numbers from the data below, not vague pessimism.
+Do not soften your case or pre-empt counterarguments; argue it as strongly as the data
+actually supports. If the data doesn't support a strong bear case, say so honestly rather
+than manufacturing one — your credibility in the debate depends on not overreaching.
+
+Question: {question}
+
+Analytical angles identified as relevant:
+{plan_text}
+
+All available data:
+{gathered_data}
+
+Write the bear case."""
+
+REBUTTAL_PROMPT_TEMPLATE = """You previously wrote this {stance} case:
+{own_case}
+
+The opposing {other_stance} advocate wrote this:
+{other_case}
+
+Write a rebuttal: identify the specific weakest point(s) in the opposing case and
+challenge them directly using the data below. Do not restate your original case — only
+the rebuttal itself. If the opposing case raises a point you genuinely cannot counter
+with the available data, concede it explicitly rather than deflecting — a synthesizer
+is weighing this next and needs to know which points actually hold up.
+
+Data available:
+{gathered_data}"""
+
+SYNTHESIS_PROMPT_TEMPLATE = """Question: {question}
+
+Two analysts debated this from opposing sides. Here is the full exchange:
+
+BULL CASE:
+{bull_case}
+
+BEAR CASE:
+{bear_case}
+
+BULL REBUTTAL (responding to the bear case):
+{bull_rebuttal}
+
+BEAR REBUTTAL (responding to the bull case):
+{bear_rebuttal}
+
+All available data:
+{gathered_data}
+
+Write the final analysis for Bernardo. Weigh both sides on their merits — including
+which rebuttals actually landed and which points went unanswered. Follow your standard
+output rules: tight and scannable, bull case, bear case, catalysts/risks, and a
+recommendation only if a defined trigger is met. This is the answer Bernardo actually
+reads — the debate above is working material, not the final format."""
+
+
+def _debate_call(prompt, system=None, max_tokens=1200):
+    kwargs = {
+        "model": "claude-sonnet-4-5",
+        "max_tokens": max_tokens,
+        "messages": [{"role": "user", "content": prompt}]
+    }
+    if system:
+        kwargs["system"] = system
+    response = claude_client.messages.create(**kwargs)
+    return "".join(block.text for block in response.content if block.type == "text")
+
+
+def run_debate(question, gathered_data, analysis_plan):
+    """Runs the full Bull/Bear debate and returns every stage, not just the final
+    synthesis — this is what makes the debate actually inspectable. run_advisor()
+    below wraps this and returns only the synthesis, so its contract is unchanged
+    for every existing caller (Approver, claim verification, run_advisor_with_approval)."""
     already_called = {
         f"{g['tool']}({json.dumps(g['args'], sort_keys=True)})": g["result"]
         for g in gathered_data
     }
-
     for item in analysis_plan:
         for call in item.get("data_still_needed", []):
             tool_name = call.get("tool")
             args = filter_args_for_tool(tool_name, call.get("args", {}))
             call_key = f"{tool_name}({json.dumps(args, sort_keys=True)})"
-
             if call_key in already_called or tool_name not in tool_functions:
                 continue
-
             try:
                 result = tool_functions[tool_name](**args)
             except Exception as e:
                 result = {"error": f"Tool '{tool_name}' failed: {e}"}
-
             already_called[call_key] = result
             gathered_data.append({"tool": tool_name, "args": args, "result": result})
 
@@ -262,27 +357,34 @@ def run_advisor(question, gathered_data, analysis_plan):
         f"- {item['angle']}: {item['why_it_matters_for_this_question']}"
         for item in analysis_plan
     )
+    data_text = summarize_for_prompt(gathered_data)
 
-    prompt = f"""Question: {question}
+    bull_case = _debate_call(BULL_PROMPT_TEMPLATE.format(question=question, plan_text=plan_text, gathered_data=data_text))
+    bear_case = _debate_call(BEAR_PROMPT_TEMPLATE.format(question=question, plan_text=plan_text, gathered_data=data_text))
 
-Your senior analyst planner has identified these angles that must be covered:
-{plan_text}
+    bull_rebuttal = _debate_call(REBUTTAL_PROMPT_TEMPLATE.format(
+        stance="bull", other_stance="bear", own_case=bull_case, other_case=bear_case, gathered_data=data_text
+    ), max_tokens=800)
+    bear_rebuttal = _debate_call(REBUTTAL_PROMPT_TEMPLATE.format(
+        stance="bear", other_stance="bull", own_case=bear_case, other_case=bull_case, gathered_data=data_text
+    ), max_tokens=800)
 
-All available data:
-{summarize_for_prompt(gathered_data)}
+    synthesis = _debate_call(SYNTHESIS_PROMPT_TEMPLATE.format(
+        question=question, bull_case=bull_case, bear_case=bear_case,
+        bull_rebuttal=bull_rebuttal, bear_rebuttal=bear_rebuttal, gathered_data=data_text
+    ), system=FRED_SYSTEM_PROMPT, max_tokens=2000)
 
-Write your full analysis, explicitly addressing each angle above, following your
-standard analytical rules (bull/bear cases, quantitative, portfolio-aware)."""
+    return {
+        "bull_case": bull_case,
+        "bear_case": bear_case,
+        "bull_rebuttal": bull_rebuttal,
+        "bear_rebuttal": bear_rebuttal,
+        "synthesis": synthesis
+    }
 
-    response = claude_client.messages.create(
-        model="claude-sonnet-4-5",
-        max_tokens=2000,
-        system=FRED_SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": prompt}]
-    )
 
-    return "".join(block.text for block in response.content if block.type == "text")
-
+def run_advisor(question, gathered_data, analysis_plan):
+    return run_debate(question, gathered_data, analysis_plan)["synthesis"]
 
 # --- Approver ---
 
