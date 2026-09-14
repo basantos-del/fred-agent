@@ -312,12 +312,89 @@ final verdict as a single JSON object AFTER the closing tag, in exactly this sha
   "issues": ["<specific issue found>", ...]
 }}"""
 
+CLAIM_EXTRACTION_PROMPT = """Extract every specific NUMERIC claim from this financial analysis draft
+— a ratio, percentage, dollar figure, or count attributed to a company or metric.
+Skip qualitative claims (opinions, trends with no number, risk narratives).
+
+For each claim, give:
+- "text": the exact phrase from the draft
+- "value": the bare number as a float (strip $, %, "x", commas — "32.1x" -> 32.1, "$3.2 billion" -> 3200000000)
+- "derived": true if this looks like something the analyst calculated (a growth rate, a
+  percentage of a total, a currency conversion, a sum/difference of other figures) rather
+  than a value that would appear as-is in a raw data source; false if it looks directly
+  quoted (a ratio, price, margin, or count that would appear verbatim in a data source)
+
+Draft:
+{draft}
+
+Return ONLY a JSON object: {{"claims": [{{"text": "...", "value": ..., "derived": true or false}}, ...]}}"""
+
+def extract_claims(draft):
+    response = claude_client.messages.create(
+        model="claude-sonnet-4-5",
+        max_tokens=1500,
+        messages=[{"role": "user", "content": CLAIM_EXTRACTION_PROMPT.format(draft=draft)}],
+        extra_body={"temperature": 0}
+    )
+    raw_text = "".join(block.text for block in response.content if block.type == "text")
+    parsed = extract_last_json(raw_text)
+    return parsed.get("claims", []) if parsed else []
+
+def _flatten_numbers(obj, path=""):
+    """Yield (path, value) for every int/float anywhere in a nested dict/list."""
+    if isinstance(obj, bool):
+        return
+    if isinstance(obj, (int, float)):
+        yield (path, obj)
+    elif isinstance(obj, dict):
+        for k, v in obj.items():
+            yield from _flatten_numbers(v, f"{path}.{k}" if path else k)
+    elif isinstance(obj, list):
+        for i, v in enumerate(obj):
+            yield from _flatten_numbers(v, f"{path}[{i}]")
+
+def verify_claims(claims, gathered_data, tolerance=0.02):
+    """Check each directly-sourced numeric claim against every tool result actually
+    gathered. Verified if some number in some result is within `tolerance` (relative)
+    of the claimed value — accounts for Advisor rounding, e.g. 26.42 -> "26.4x"."""
+    results = []
+    for claim in claims:
+        if claim.get("derived"):
+            results.append({**claim, "status": "derived_not_checked", "matched_tool": None})
+            continue
+
+        value = claim.get("value")
+        if value is None:
+            results.append({**claim, "status": "skipped", "matched_tool": None})
+            continue
+
+        match = None
+        for g in gathered_data:
+            call_label = f"{g['tool']}({json.dumps(g['args'], sort_keys=True)})"
+            for path, number in _flatten_numbers(g["result"]):
+                close_enough = (number == value == 0) or (number != 0 and abs(number - value) / abs(number) <= tolerance)
+                if close_enough:
+                    match = (call_label, path)
+                    break
+            if match:
+                break
+
+        if match:
+            results.append({**claim, "status": "verified", "matched_tool": match[0], "matched_path": match[1]})
+        else:
+            results.append({**claim, "status": "unverified", "matched_tool": None})
+
+    return results
+
 def run_approver(gathered_data, draft):
+    claims = extract_claims(draft)
+    checked_claims = verify_claims(claims, gathered_data)
+    unverified = [c for c in checked_claims if c["status"] == "unverified"]
+
     prompt = APPROVER_PROMPT_TEMPLATE.format(
         gathered_data=summarize_for_prompt(gathered_data),
         draft=draft
     )
-
     response = call_groq_with_retry(
         client,
         model="openai/gpt-oss-20b",
@@ -331,8 +408,16 @@ def run_approver(gathered_data, draft):
 
     if parsed is None or "approved" not in parsed:
         print(f"Approver parse failed, failing open. Raw: {raw_text[:300]}", flush=True)
-        return {"approved": True, "issues": [], "parse_error": raw_text}
+        parsed = {"approved": True, "issues": [], "parse_error": raw_text}
 
+    if unverified:
+        parsed["approved"] = False
+        parsed["issues"] = parsed.get("issues", []) + [
+            f"Unverified numeric claim: '{c['text']}' (value {c['value']}) — no match in retrieved data"
+            for c in unverified
+        ]
+
+    parsed["claim_check"] = checked_claims  # full detail, worth logging for the eval suite later
     return parsed
 
 def run_advisor_with_approval(question, gathered_data, analysis_plan):
