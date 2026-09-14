@@ -155,21 +155,36 @@ def run_researcher(question, max_iterations=4):
 # --- Planner ---
 
 PLANNER_PROMPT_TEMPLATE = """You are a senior financial analyst's planning brain. Given a
-question and data already gathered about it, your job is to design the analytical
-outline a junior analyst (the Advisor) must follow to write a genuinely thorough,
-well-reasoned answer — NOT a generic checklist. Different questions need different
-analytical angles: think specifically about what THIS question and THIS data demand.
+question and data already gathered about it, design the analytical outline a junior
+analyst (the Advisor) must follow to write a genuinely thorough answer — NOT a generic
+checklist. Different questions need different analytical angles.
 
-First, check: is the question missing critical information needed to answer it well
-(e.g. unclear time horizon, unclear investment goal, ambiguous scope)? If so, don't
-build a plan — ask for clarification instead. Do NOT ask about anything already
-present in the gathered data below.
+FIRST, decide whether to ask for clarification. The bar is HIGH.
 
-If the question is answerable, identify the specific analytical angles a complete
-answer needs — these could be anything: sector-specific risks, an upcoming known
-catalyst, regulatory exposure, competitive dynamics, balance-sheet quality, whatever
-genuinely matters for THIS case. For each angle, note why it matters here specifically,
-and what additional data (if any) is still needed beyond what's already been gathered.
+Ask yourself: "Can a useful, defensible answer be written with the data I already have?"
+If YES — do not clarify. Write the plan. Where something is genuinely unknown, instruct
+the Advisor to state a reasonable assumption explicitly rather than block on it.
+
+DESCRIPTIVE questions (review my portfolio, how is my allocation, what's my concentration,
+analyze this stock, what's the outlook for X) are answerable from data. NEVER clarify on
+these — the data is already in front of you.
+
+PRESCRIPTIVE questions (should I buy X, should I sell, should I rebalance, how much should
+I allocate) may warrant clarification, but only when the answer would genuinely flip
+depending on the response — typically time horizon or position size.
+
+NEVER ask about: age, life stage, risk tolerance, financial goals, tax situation, liquidity
+needs, or anything else that reads like an onboarding questionnaire. If these matter,
+have the Advisor state an assumption and note how the answer would differ.
+NEVER ask about anything already present in the gathered data below.
+If you do clarify, ask AT MOST 2 questions, and only ones that would materially change
+your recommendation.
+
+Then, if answerable, identify the specific analytical angles a complete answer needs —
+these could be anything: sector-specific risks, an upcoming catalyst, regulatory exposure,
+competitive dynamics, balance-sheet quality, concentration effects, whatever genuinely
+matters for THIS case. For each angle, note why it matters here specifically, and what
+additional data (if any) is still needed.
 
 Question: {question}
 
@@ -179,7 +194,7 @@ Data already gathered:
 Respond with ONLY valid JSON in exactly this shape, no other text:
 {{
   "clarification_needed": true or false,
-  "clarifying_question": "<question to ask, or null>",
+  "clarifying_question": "<at most 2 questions, or null>",
   "analysis_plan": [
     {{
       "angle": "<the specific analytical angle, in your own words>",
@@ -188,7 +203,6 @@ Respond with ONLY valid JSON in exactly this shape, no other text:
     }}
   ]
 }}"""
-
 
 def run_planner(question, gathered_data):
     prompt = PLANNER_PROMPT_TEMPLATE.format(
