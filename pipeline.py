@@ -312,21 +312,21 @@ final verdict as a single JSON object AFTER the closing tag, in exactly this sha
   "issues": ["<specific issue found>", ...]
 }}"""
 
-
 def run_approver(gathered_data, draft):
     prompt = APPROVER_PROMPT_TEMPLATE.format(
         gathered_data=summarize_for_prompt(gathered_data),
         draft=draft
     )
 
-    response = claude_client.messages.create(
-        model="claude-sonnet-4-5",
-        max_tokens=3000,
+    response = call_groq_with_retry(
+        client,
+        model="openai/gpt-oss-20b",
         messages=[{"role": "user", "content": prompt}],
-        extra_body={"temperature": 0}
+        temperature=0,
+        max_tokens=3000
     )
 
-    raw_text = response.content[0].text.strip()
+    raw_text = response.choices[0].message.content.strip()
     parsed = extract_last_json(raw_text)
 
     if parsed is None or "approved" not in parsed:
@@ -334,7 +334,6 @@ def run_approver(gathered_data, draft):
         return {"approved": True, "issues": [], "parse_error": raw_text}
 
     return parsed
-
 
 def run_advisor_with_approval(question, gathered_data, analysis_plan):
     draft = run_advisor(question, gathered_data, analysis_plan)
