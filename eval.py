@@ -119,9 +119,30 @@ def judge_output(question, criteria, output):
 
     return parsed["score"], parsed.get("reasoning", "")
 
+def summarize_claim_check(verdict):
+    """Compact 'N/M verified' string from an Approver verdict's claim_check.
+    Returns '' when this case never went through claim verification — the
+    SIMPLE route and the researcher/planner eval stages skip the Approver
+    entirely, so there's nothing to summarize."""
+    claim_check = (verdict or {}).get("claim_check")
+    if not claim_check:
+        return ""
+
+    checkable = [c for c in claim_check if c["status"] in ("verified", "unverified")]
+    verified = sum(1 for c in checkable if c["status"] == "verified")
+    derived = sum(1 for c in claim_check if c["status"] == "derived_not_checked")
+
+    if not checkable:
+        return f"0/0 verified ({derived} derived)" if derived else "0/0 verified"
+
+    summary = f"{verified}/{len(checkable)} verified"
+    if derived:
+        summary += f" ({derived} derived)"
+    return summary
 
 def run_single_eval_case(case):
     stage = case.get("stage", "end_to_end")
+    claim_summary = ""
 
     try:
         if stage == "researcher":
@@ -138,30 +159,22 @@ def run_single_eval_case(case):
             output = result["content"]
             if result["type"] == "clarification":
                 output = f"[Responded with a clarifying question instead of an answer]\n{output}"
+            claim_summary = summarize_claim_check(result.get("approver_verdict"))
 
     except Exception as e:
         return {
-            "id": case["id"],
-            "category": case["category"],
-            "stage": stage,
-            "question": case["question"],
-            "output": f"Error: {e}",
-            "score": 0,
-            "reasoning": f"Execution failed: {e}"
+            "id": case["id"], "category": case["category"], "stage": stage,
+            "question": case["question"], "output": f"Error: {e}",
+            "score": 0, "reasoning": f"Execution failed: {e}", "claim_summary": ""
         }
 
     score, reasoning = judge_output(case["question"], case["criteria"], output)
 
     return {
-        "id": case["id"],
-        "category": case["category"],
-        "stage": stage,
-        "question": case["question"],
-        "output": output,
-        "score": score,
-        "reasoning": reasoning
+        "id": case["id"], "category": case["category"], "stage": stage,
+        "question": case["question"], "output": output,
+        "score": score, "reasoning": reasoning, "claim_summary": claim_summary
     }
-
 
 def log_eval_run(results, run_id=None):
     try:
@@ -169,7 +182,7 @@ def log_eval_run(results, run_id=None):
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         run_id = run_id or timestamp
         rows = [
-            [timestamp, r["id"], r["category"], str(r["score"]), r["reasoning"][:2000], run_id]
+            [timestamp, r["id"], r["category"], str(r["score"]), r["reasoning"][:2000], run_id, r.get("claim_summary", "")]
             for r in results
         ]
         ws.append_rows(rows)
@@ -184,7 +197,8 @@ def log_eval_result(result, run_id):
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         ws.append_row([
             timestamp, result["id"], result["category"],
-            str(result["score"]), result["reasoning"][:2000], run_id
+            str(result["score"]), result["reasoning"][:2000], run_id,
+            result.get("claim_summary", "")
         ])
         return True
     except Exception as e:
@@ -197,12 +211,12 @@ def get_eval_history():
         values = ws.get_all_values()
         return [
             {
-                "timestamp": row[0],
-                "case_id": row[1] if len(row) > 1 else "",
+                "timestamp": row[0], "case_id": row[1] if len(row) > 1 else "",
                 "category": row[2] if len(row) > 2 else "",
                 "score": float(row[3]) if len(row) > 3 and row[3] else 0,
                 "reasoning": row[4] if len(row) > 4 else "",
-                "run_id": row[5] if len(row) > 5 else ""
+                "run_id": row[5] if len(row) > 5 else "",
+                "claim_summary": row[6] if len(row) > 6 else ""
             }
             for row in values[1:] if row and row[0]
         ]
