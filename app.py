@@ -11,7 +11,7 @@ from tools import (
     log_conversation_message, log_feedback, get_all_feedback,
     mark_feedback_addressed, log_coach_adoption, get_coach_log,
 )
-from eval import run_single_eval_case, GOLDEN_SET
+from eval import run_single_eval_case, GOLDEN_SET, log_eval_run, get_eval_history
 
 st.title("Hi,Bernardo! Let's get your finances up and running")
 
@@ -335,34 +335,80 @@ with tab_compare:
 
 with tab_eval:
     st.subheader("Eval Suite")
-    st.caption(f"{len(GOLDEN_SET)} test cases, judged by Claude against specific criteria.")
+    st.caption(
+        f"{len(GOLDEN_SET)} test cases across end-to-end, researcher, and planner stages. "
+        "Scored 0-10 by Claude against per-case criteria."
+    )
 
     if st.button("Run Eval Suite"):
         results = []
         progress_placeholder = st.empty()
 
         for i, case in enumerate(GOLDEN_SET):
-            progress_placeholder.info(f"Running case {i + 1}/{len(GOLDEN_SET)}: {case['id']}...")
-            result = run_single_eval_case(case)
-            results.append(result)
+            progress_placeholder.info(
+                f"Running case {i + 1}/{len(GOLDEN_SET)}: {case['id']} ({case.get('stage', 'end_to_end')})..."
+            )
+            results.append(run_single_eval_case(case))
 
         progress_placeholder.empty()
         st.session_state["eval_results"] = results
+        log_eval_run(results)
 
-    if "eval_results" in st.session_state:
-        results = st.session_state["eval_results"]
-        passed = sum(1 for r in results if r["verdict"] == "PASS")
-        st.metric("Pass Rate", f"{passed}/{len(results)}")
+    results = st.session_state.get("eval_results")
+    if results:
+        avg_score = sum(r["score"] for r in results) / len(results)
 
-        for r in results:
-            icon = "✅" if r["verdict"] == "PASS" else "❌"
-            with st.expander(f"{icon} {r['id']} ({r['category']})"):
+        col_a, col_b = st.columns(2)
+        with col_a:
+            st.metric("Average Score", f"{avg_score:.1f}/10")
+        with col_b:
+            failing = sum(1 for r in results if r["score"] < 7)
+            st.metric("Cases below 7", f"{failing}/{len(results)}")
+
+        st.write("**By stage:**")
+        stage_cols = st.columns(3)
+        for col, stage in zip(stage_cols, ["end_to_end", "researcher", "planner"]):
+            stage_results = [r for r in results if r["stage"] == stage]
+            with col:
+                if stage_results:
+                    stage_avg = sum(r["score"] for r in stage_results) / len(stage_results)
+                    st.metric(stage, f"{stage_avg:.1f}/10", f"{len(stage_results)} case(s)")
+                else:
+                    st.metric(stage, "—")
+
+        st.divider()
+
+        for r in sorted(results, key=lambda x: x["score"]):
+            if r["score"] >= 7:
+                icon = "✅"
+            elif r["score"] >= 4:
+                icon = "⚠️"
+            else:
+                icon = "❌"
+
+            with st.expander(f"{icon} {r['score']}/10 · {r['id']} ({r['category']} · {r['stage']})"):
                 st.write(f"**Question:** {r['question']}")
-                st.write(f"**Fred's answer:**")
-                st.markdown(r["answer"])
-                st.write(f"**Tools used:** {', '.join(r['used_tools']) if r['used_tools'] else 'none'}")
-                st.write(f"**Judge verdict:** {r['verdict']}")
                 st.write(f"**Judge reasoning:** {r['reasoning']}")
+                with st.expander("Output produced"):
+                    st.code(r["output"][:5000], language=None)
+
+    st.divider()
+    st.subheader("Score trend over time")
+
+    history = get_eval_history()
+    if len(history) < 2:
+        st.caption("Run the suite a few times to build a trend.")
+    else:
+        import pandas as pd
+
+        hist_df = pd.DataFrame(history)
+        run_avg = hist_df.groupby("run_id")["score"].mean().reset_index()
+        run_avg = run_avg.sort_values("run_id")
+        st.line_chart(run_avg.set_index("run_id")["score"])
+
+        st.write("**Per-case trend:**")
+        pivot = hist_df.pivot_table(index="run_id", columns="case_id", values="score", aggfunc="mean")
+        st.dataframe(pivot.sort_index(ascending=False), width='stretch')
 
 with tab_coach:
     st.subheader("Coach — Self-Improvement Review")
