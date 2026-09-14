@@ -332,13 +332,18 @@ Return ONLY a JSON object: {{"claims": [{{"text": "...", "value": ..., "derived"
 def extract_claims(draft):
     response = claude_client.messages.create(
         model="claude-sonnet-4-5",
-        max_tokens=1500,
+        max_tokens=4000,
         messages=[{"role": "user", "content": CLAIM_EXTRACTION_PROMPT.format(draft=draft)}],
         extra_body={"temperature": 0}
     )
     raw_text = "".join(block.text for block in response.content if block.type == "text")
     parsed = extract_last_json(raw_text)
-    return parsed.get("claims", []) if parsed else []
+
+    if parsed is None or "claims" not in parsed:
+        print(f"Claim extraction parse failed, returning no claims. Raw: {raw_text[:300]}", flush=True)
+        return []
+
+    return parsed["claims"]
 
 def _flatten_numbers(obj, path=""):
     """Yield (path, value) for every int/float anywhere in a nested dict/list."""
@@ -400,10 +405,13 @@ def run_approver(gathered_data, draft):
         model="openai/gpt-oss-20b",
         messages=[{"role": "user", "content": prompt}],
         temperature=0,
-        max_tokens=3000
+        max_tokens=3000,
+        reasoning_effort="low"
     )
 
     raw_text = response.choices[0].message.content.strip()
+    if not raw_text:
+        print(f"Approver got empty content. Full message object: {response.choices[0].message}", flush=True)
     parsed = extract_last_json(raw_text)
 
     if parsed is None or "approved" not in parsed:
