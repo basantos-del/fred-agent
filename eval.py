@@ -178,6 +178,18 @@ def log_eval_run(results, run_id=None):
         print(f"Failed to log eval run: {e}", flush=True)
         return False
 
+def log_eval_result(result, run_id):
+    try:
+        ws = sheet.worksheet("Eval Runs")
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        ws.append_row([
+            timestamp, result["id"], result["category"],
+            str(result["score"]), result["reasoning"][:2000], run_id
+        ])
+        return True
+    except Exception as e:
+        print(f"Failed to log eval result: {e}", flush=True)
+        return False
 
 def get_eval_history():
     try:

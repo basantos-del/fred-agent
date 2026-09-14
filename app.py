@@ -11,7 +11,7 @@ from tools import (
     log_conversation_message, log_feedback, get_all_feedback,
     mark_feedback_addressed, log_coach_adoption, get_coach_log,
 )
-from eval import run_single_eval_case, GOLDEN_SET, log_eval_run, get_eval_history
+from eval import run_single_eval_case, GOLDEN_SET, log_eval_result, get_eval_history
 
 st.title("Hi,Bernardo! Let's get your finances up and running")
 
@@ -340,22 +340,62 @@ with tab_eval:
         "Scored 0-10 by Claude against per-case criteria."
     )
 
-    if st.button("Run Eval Suite"):
+    st.write("**Select cases to run:**")
+
+    all_stages = sorted({c.get("stage", "end_to_end") for c in GOLDEN_SET})
+    all_categories = sorted({c["category"] for c in GOLDEN_SET})
+
+    col_f1, col_f2 = st.columns(2)
+    with col_f1:
+        stage_filter = st.multiselect("Stage", all_stages, default=all_stages)
+    with col_f2:
+        category_filter = st.multiselect("Category", all_categories, default=all_categories)
+
+    filtered_cases = [
+        c for c in GOLDEN_SET
+        if c.get("stage", "end_to_end") in stage_filter and c["category"] in category_filter
+    ]
+
+    st.caption(f"{len(filtered_cases)} case(s) selected.")
+
+    if st.button("Run selected cases"):
+        run_id = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         results = []
         progress_placeholder = st.empty()
 
-        for i, case in enumerate(GOLDEN_SET):
+        for i, case in enumerate(filtered_cases):
             progress_placeholder.info(
-                f"Running case {i + 1}/{len(GOLDEN_SET)}: {case['id']} ({case.get('stage', 'end_to_end')})..."
+                f"Running case {i + 1}/{len(filtered_cases)}: {case['id']} ({case.get('stage', 'end_to_end')})..."
             )
-            results.append(run_single_eval_case(case))
+            try:
+                result = run_single_eval_case(case)
+            except Exception as e:
+                result = {
+                    "id": case["id"],
+                    "category": case["category"],
+                    "stage": case.get("stage", "end_to_end"),
+                    "question": case["question"],
+                    "output": f"Error: {e}",
+                    "score": 0,
+                    "reasoning": f"Run failed: {e}"
+                }
+
+            results.append(result)
+            log_eval_result(result, run_id)
+            st.session_state["eval_results"] = results
+            st.session_state["eval_expected_count"] = len(filtered_cases)
 
         progress_placeholder.empty()
-        st.session_state["eval_results"] = results
-        log_eval_run(results)
 
     results = st.session_state.get("eval_results")
     if results:
+        expected = st.session_state.get("eval_expected_count", len(results))
+        if len(results) < expected:
+            st.warning(
+                f"⚠️ Partial run: {len(results)} of {expected} cases completed. "
+                "Results logged for those that finished."
+            )
+
         avg_score = sum(r["score"] for r in results) / len(results)
 
         col_a, col_b = st.columns(2)
@@ -389,8 +429,8 @@ with tab_eval:
             with st.expander(f"{icon} {r['score']}/10 · {r['id']} ({r['category']} · {r['stage']})"):
                 st.write(f"**Question:** {r['question']}")
                 st.write(f"**Judge reasoning:** {r['reasoning']}")
-                with st.expander("Output produced"):
-                    st.code(r["output"][:5000], language=None)
+                st.write("**Output produced:**")
+                st.code(r["output"][:5000], language=None)
 
     st.divider()
     st.subheader("Score trend over time")
