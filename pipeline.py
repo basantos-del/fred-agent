@@ -311,6 +311,19 @@ BEAR REBUTTAL (responding to the bull case):
 All available data:
 {gathered_data}
 
+Important: a claim surviving the rebuttal round is not proof it's valid — it may just mean
+the rebuttal round didn't happen to target that specific phrasing of it. Before crediting
+either side's argument because the other side didn't directly rebut it, check the argument's
+logical validity yourself. Be especially alert for comparative/inferential arithmetic of the
+shape "X% exceeds Y%, therefore [conclusion]" where X and Y are percentages or ratios measured
+in different units or bases (e.g. a valuation-multiple premium vs. a profitability-ratio
+premium, or a growth rate vs. a margin). Comparing two such percentages by subtraction or
+ratio is usually invalid regardless of phrasing — including when it's a restated version of
+an argument that was already debunked in a different numeric form earlier in the debate. If
+you find a claim like this that went technically unrebutted, evaluate it yourself before
+weighing it in the verdict, and say explicitly if you're discounting a claim on those grounds
+even though neither side directly rebutted it.
+
 Write the final analysis for Bernardo. Weigh both sides on their merits — including
 which rebuttals actually landed and which points went unanswered. Follow your standard
 output rules: tight and scannable, bull case, bear case, catalysts/risks, and a
