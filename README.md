@@ -44,7 +44,7 @@ not just directly-held tickers), and the Groq/Claude API wrappers.
 LLM judge, plus a deterministic "claims verified N/M" metric — logged to a Google Sheet
 for tracking over time.
 
-**UI** (`app.py`): a Streamlit app with five tabs — Chat, Dashboard, Model Comparison,
+**UI** (`app.py`): a Streamlit app with four tabs — Chat, Dashboard,
 Eval, and Coach.
 
 ## Setup
