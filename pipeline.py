@@ -3,7 +3,7 @@ import re
 from agent import client, run_agent_turn, SYSTEM_PROMPT as FRED_SYSTEM_PROMPT
 from agent_claude import claude_client
 from tools import (
-    tool_functions, tools, call_groq_with_retry, filter_args_for_tool,
+    tool_functions, tools, call_groq_with_retry, call_claude_with_retry, filter_args_for_tool,
     get_recent_conversations, get_all_feedback
 )
 
@@ -54,8 +54,9 @@ Question: {question}
 
 Respond with exactly one word: SIMPLE or COMPLEX"""
 
-    response = claude_client.messages.create(
-        model="claude-sonnet-4-5",
+    response = call_claude_with_retry(
+	claude_client,
+        model="claude-haiku-4-5-20251001",
         max_tokens=10,
         messages=[{"role": "user", "content": prompt}],
         extra_body={"temperature": 0}
@@ -186,6 +187,10 @@ competitive dynamics, balance-sheet quality, concentration effects, whatever gen
 matters for THIS case. For each angle, note why it matters here specifically, and what
 additional data (if any) is still needed.
 
+When naming a tool in "data_still_needed", you MUST choose only from this exact list of
+valid tool names — do not invent or guess a plausible-sounding name that isn't on it:
+{valid_tools}
+
 Question: {question}
 
 Data already gathered:
@@ -208,9 +213,10 @@ def run_planner(question, gathered_data):
     prompt = PLANNER_PROMPT_TEMPLATE.format(
         question=question,
         gathered_data=summarize_for_prompt(gathered_data)
+	valid_tools=", ".join(sorted(tool_functions.keys()))
     )
-
-    response = claude_client.messages.create(
+    response = call_claude_with_retry(
+	claude_client,
         model="claude-sonnet-4-5",
         max_tokens=1500,
         messages=[{"role": "user", "content": prompt}]
@@ -339,25 +345,36 @@ def _debate_call(prompt, system=None, max_tokens=1200):
     }
     if system:
         kwargs["system"] = system
-    response = claude_client.messages.create(**kwargs)
+    response = call_claude_with_retry(claude_client, **kwargs)
     return "".join(block.text for block in response.content if block.type == "text")
-
 
 def run_debate(question, gathered_data, analysis_plan):
     """Runs the full Bull/Bear debate and returns every stage, not just the final
     synthesis — this is what makes the debate actually inspectable. run_advisor()
     below wraps this and returns only the synthesis, so its contract is unchanged
-    for every existing caller (Approver, claim verification, run_advisor_with_approval)."""
+    for every existing caller (Approver, claim verification, run_advisor_with_approval).
+
+    Any data_still_needed request naming a tool that isn't in tool_functions is
+    skipped and recorded in skipped_data_requests instead of silently dropped —
+    see PLANNER_PROMPT_TEMPLATE for the matching fix on the request side."""
     already_called = {
         f"{g['tool']}({json.dumps(g['args'], sort_keys=True)})": g["result"]
         for g in gathered_data
     }
+    skipped_data_requests = []
     for item in analysis_plan:
         for call in item.get("data_still_needed", []):
             tool_name = call.get("tool")
             args = filter_args_for_tool(tool_name, call.get("args", {}))
             call_key = f"{tool_name}({json.dumps(args, sort_keys=True)})"
-            if call_key in already_called or tool_name not in tool_functions:
+            if call_key in already_called:
+                continue
+            if tool_name not in tool_functions:
+                skipped_data_requests.append({
+                    "angle": item.get("angle"),
+                    "requested_tool": tool_name,
+                    "args": call.get("args", {})
+                })
                 continue
             try:
                 result = tool_functions[tool_name](**args)
@@ -392,9 +409,9 @@ def run_debate(question, gathered_data, analysis_plan):
         "bear_case": bear_case,
         "bull_rebuttal": bull_rebuttal,
         "bear_rebuttal": bear_rebuttal,
-        "synthesis": synthesis
+        "synthesis": synthesis,
+        "skipped_data_requests": skipped_data_requests
     }
-
 
 def run_advisor(question, gathered_data, analysis_plan):
     return run_debate(question, gathered_data, analysis_plan)["synthesis"]
@@ -449,7 +466,8 @@ Draft:
 Return ONLY a JSON object: {{"claims": [{{"text": "...", "value": ..., "derived": true or false}}, ...]}}"""
 
 def extract_claims(draft):
-    response = claude_client.messages.create(
+    response = call_claude_with_retry(
+	claude_client,
         model="claude-sonnet-4-5",
         max_tokens=4000,
         messages=[{"role": "user", "content": CLAIM_EXTRACTION_PROMPT.format(draft=draft)}],
@@ -722,7 +740,8 @@ def run_coach(limit_threads=10):
         feedback=feedback_text[:8000]
     )
 
-    response = claude_client.messages.create(
+    response = call_claude_with_retry(
+	claude_client,
         model="claude-sonnet-4-5",
         max_tokens=3000,
         messages=[{"role": "user", "content": prompt}]

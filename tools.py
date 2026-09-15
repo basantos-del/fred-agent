@@ -15,7 +15,7 @@ from voyageai.error import RateLimitError
 from groq import Groq
 from groq import RateLimitError
 from groq import RateLimitError, BadRequestError
-import re
+from anthropic import RateLimitError as ClaudeRateLimitError, APIStatusError as ClaudeAPIStatusError, APIConnectionError as ClaudeAPIConnectionError
 
 load_dotenv()
 finnhub_key = os.environ["FINNHUB_API_KEY"]
@@ -553,6 +553,43 @@ def evaluate_recommendation(ticker):
         "portfolio_context": get_portfolio_context(),
         "usd_to_eur_rate": exchange_rate
     }
+
+def call_claude_with_retry(client, max_retries=5, **kwargs):
+    """Mirrors call_groq_with_retry: wraps claude_client.messages.create() with
+    backoff on rate limits (429), transient server errors (5xx), and connection
+    errors, so one flaky call doesn't kill an entire multi-call debate chain."""
+    attempt = 0
+    while True:
+        try:
+            return client.messages.create(**kwargs)
+        except ClaudeRateLimitError as e:
+            attempt += 1
+            if attempt > max_retries:
+                raise
+            retry_after = None
+            try:
+                retry_after = float(e.response.headers.get("retry-after"))
+            except (AttributeError, TypeError, ValueError):
+                pass
+            wait_time = retry_after if retry_after else min(2 ** attempt, 60)
+            print(f"Claude rate limited, waiting {wait_time:.0f}s (attempt {attempt}/{max_retries})...", flush=True)
+            time.sleep(wait_time)
+        except ClaudeAPIConnectionError as e:
+            attempt += 1
+            if attempt > max_retries:
+                raise
+            wait_time = min(2 ** attempt, 30)
+            print(f"Claude connection error, waiting {wait_time:.0f}s (attempt {attempt}/{max_retries}): {e}", flush=True)
+            time.sleep(wait_time)
+        except ClaudeAPIStatusError as e:
+            if e.status_code < 500:
+                raise
+            attempt += 1
+            if attempt > max_retries:
+                raise
+            wait_time = min(2 ** attempt, 30)
+            print(f"Claude server error {e.status_code}, waiting {wait_time:.0f}s (attempt {attempt}/{max_retries})...", flush=True)
+            time.sleep(wait_time)
 
 def call_groq_with_retry(client, max_malformed_retries=3, **kwargs):
     malformed_attempts = 0

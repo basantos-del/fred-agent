@@ -2,7 +2,7 @@ import json
 import re
 from datetime import datetime
 from agent import SYSTEM_PROMPT
-from agent_claude import claude_client
+from agent_claude import claude_client, call_claude_with_retry
 from pipeline import run_pipeline, run_researcher, run_planner, extract_last_json
 from tools import sheet
 
@@ -106,7 +106,8 @@ def judge_output(question, criteria, output):
         output=output[:8000]
     )
 
-    response = claude_client.messages.create(
+    response = call_claude_with_retry(
+	claude_client,
         model="claude-sonnet-4-5",
         max_tokens=500,
         messages=[{"role": "user", "content": prompt}],
