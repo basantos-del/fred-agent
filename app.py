@@ -125,6 +125,12 @@ with tab_chat:
                             with st.expander(f"Fred used {len(meta['used_tools'])} tool call(s)"):
                                 for t in meta["used_tools"]:
                                     st.write(f"- `{t}`")
+                        if meta.get("skipped_data_requests"):
+                            skipped = meta["skipped_data_requests"]
+                            with st.expander(f"⚠️ {len(skipped)} data request(s) dropped — unknown tool name"):
+                                for s in skipped:
+                                    st.write(f"- `{s['requested_tool']}` (for angle: *{s['angle']}*)")
+			    
 
             if awaiting:
                 st.markdown("**Answer to Fred:**")
@@ -183,7 +189,8 @@ with tab_chat:
             "route": result.get("route"),
             "plan": result.get("plan"),
             "issues": None if verdict.get("approved", True) else verdict.get("issues"),
-            "used_tools": result.get("used_tools")
+            "used_tools": result.get("used_tools"),
+	    "skipped_data_requests": result.get("skipped_data_requests")
         }
 
         st.session_state.messages.append({
