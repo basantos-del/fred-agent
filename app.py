@@ -61,6 +61,43 @@ st.session_state.setdefault("current_thread_id", uuid.uuid4().hex[:12])
 with st.sidebar:
     st.markdown("### Fred")
 
+    st.markdown(
+        """
+        <style>
+        section[data-testid="stSidebar"] div[data-testid="stButton"] > button {
+            width: 100%;
+            display: block;
+            text-align: left;
+            justify-content: flex-start;
+            background: transparent;
+            border: none;
+            box-shadow: none;
+            padding: 6px 10px;
+            border-radius: 8px;
+            font-weight: 400;
+            color: inherit;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        section[data-testid="stSidebar"] div[data-testid="stButton"] > button:hover {
+            background: rgba(128, 128, 128, 0.12);
+            color: inherit;
+            border: none;
+        }
+        section[data-testid="stSidebar"] div[data-testid="stButton"] > button[kind="primary"] {
+            background: rgba(128, 128, 128, 0.20);
+            font-weight: 600;
+            color: inherit;
+        }
+        section[data-testid="stSidebar"] div[data-testid="stButton"] > button[kind="primary"]:hover {
+            background: rgba(128, 128, 128, 0.25);
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
     if st.button("+ New chat"):
         st.session_state.messages = [{"role": "system", "content": SYSTEM_PROMPT}]
         st.session_state["current_thread_id"] = uuid.uuid4().hex[:12]
@@ -82,11 +119,19 @@ with st.sidebar:
         current_label = "Current chat"
         if current_first_user_msg:
             current_label = current_first_user_msg[:60] + ("..." if len(current_first_user_msg) > 60 else "")
-        if st.button(f"{'▸ ' if is_viewing_current else ''}{current_label}", key="sidebar_current_thread"):
+        if st.button(
+            current_label,
+            key="sidebar_current_thread",
+            type="primary" if is_viewing_current else "secondary",
+        ):
             st.session_state.pop("viewing_thread_id", None)
             st.rerun()
 
-    st.caption("Previous")
+    st.markdown(
+        "<div style='font-size:11px; font-weight:600; letter-spacing:0.04em; "
+        "text-transform:uppercase; color:#8a8d93; margin:18px 2px 4px 10px;'>Previous</div>",
+        unsafe_allow_html=True,
+    )
     try:
         history_rows = get_cached_recent_conversations()
     except Exception as e:
@@ -109,13 +154,13 @@ with st.sidebar:
             if len(first_user_row["content"]) > 60:
                 label += "..."
         is_active = st.session_state.get("viewing_thread_id") == tid
-        if st.button(f"{'▸ ' if is_active else ''}{label}", key=f"sidebar_thread_{tid}"):
+        if st.button(
+            label,
+            key=f"sidebar_thread_{tid}",
+            type="primary" if is_active else "secondary",
+        ):
             st.session_state["viewing_thread_id"] = tid
             st.rerun()
-        ts_label = _relative_time(rows[0]["timestamp"]) if rows else ""
-        if ts_label:
-            st.caption(ts_label)
-
 
 tab_chat, tab_dashboard, tab_eval, tab_coach = st.tabs(
     ["Chat", "Dashboard", "Eval", "Coach"]
