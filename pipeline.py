@@ -251,6 +251,11 @@ Do not soften your case or pre-empt counterarguments; argue it as strongly as th
 actually supports. If the data doesn't support a strong bull case, say so honestly rather
 than manufacturing one — your credibility in the debate depends on not overreaching.
 
+If a figure in the data below carries an accompanying `_note` field (e.g. `pe_ratio_note`),
+that field is flagging the number as not economically meaningful — do not cite it as
+decisive evidence for your case. You may still mention it, but only alongside its caveat,
+never as a standalone data point.
+
 Question: {question}
 
 Analytical angles identified as relevant:
@@ -271,6 +276,12 @@ Be quantitative and specific — cite real numbers from the data below, not vagu
 Do not soften your case or pre-empt counterarguments; argue it as strongly as the data
 actually supports. If the data doesn't support a strong bear case, say so honestly rather
 than manufacturing one — your credibility in the debate depends on not overreaching.
+
+If a figure in the data below carries an accompanying `_note` field (e.g. `pe_ratio_note`),
+that field is flagging the number as not economically meaningful — do not cite it as
+decisive evidence for your case, even if the direction of the flag happens to feel
+bear-friendly (e.g. an extreme P/E "confirming" overvaluation). You may still mention it,
+but only alongside its caveat, never as a standalone data point.
 
 Question: {question}
 
@@ -293,6 +304,11 @@ challenge them directly using the data below. Do not restate your original case 
 the rebuttal itself. If the opposing case raises a point you genuinely cannot counter
 with the available data, concede it explicitly rather than deflecting — a synthesizer
 is weighing this next and needs to know which points actually hold up.
+
+If the opposing case cites a figure that carries an accompanying `_note` field in the data
+below (flagging it as not economically meaningful), that is itself a legitimate and
+sufficient rebuttal point — call it out directly rather than debating the number on its
+own terms.
 
 Data available:
 {gathered_data}"""
@@ -329,12 +345,17 @@ you find a claim like this that went technically unrebutted, evaluate it yoursel
 weighing it in the verdict, and say explicitly if you're discounting a claim on those grounds
 even though neither side directly rebutted it.
 
+Separately: if either side's argument rests on a figure that carries an accompanying `_note`
+field in the data below (e.g. `pe_ratio_note` flagging a P/E as not economically meaningful
+due to near-zero EPS), do not credit that figure as decisive evidence for either case, even
+if neither side flagged it during the debate — discount it yourself and say explicitly that
+you're doing so.
+
 Write the final analysis for Bernardo. Weigh both sides on their merits — including
 which rebuttals actually landed and which points went unanswered. Follow your standard
 output rules: tight and scannable, bull case, bear case, catalysts/risks, and a
 recommendation only if a defined trigger is met. This is the answer Bernardo actually
 reads — the debate above is working material, not the final format."""
-
 
 def _debate_call(prompt, system=None, max_tokens=1200):
     kwargs = {
