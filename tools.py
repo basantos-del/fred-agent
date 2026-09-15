@@ -633,6 +633,16 @@ def call_groq_with_retry(client, max_malformed_retries=3, **kwargs):
             if malformed_attempts >= max_malformed_retries:
                 raise
             print(f"Groq generated malformed tool call, retrying ({malformed_attempts}/{max_malformed_retries})...", flush=True)
+
+def estimate_tokens(text):
+    """Rough token-count estimate for text headed to Groq. There's no public tokenizer
+    for openai/gpt-oss-20b, so this uses ~3 chars/token rather than the usual ~4 —
+    the content this guards (JSON tool results) tokenizes worse than prose, and this
+    is feeding a hard-cap safety check, so it's better to over-estimate than under."""
+    if not text:
+        return 0
+    return (len(text) // 3) + 1
+
 def get_valid_params(function_name):
     for t in tools:
         if t["function"]["name"] == function_name:

@@ -4,7 +4,7 @@ from agent import client, run_agent_turn, SYSTEM_PROMPT as FRED_SYSTEM_PROMPT
 from agent_claude import claude_client
 from tools import (
     tool_functions, tools, call_groq_with_retry, call_claude_with_retry, filter_args_for_tool,
-    get_recent_conversations, get_all_feedback
+    get_recent_conversations, get_all_feedback, estimate_tokens
 )
 
 # --- Shared helpers ---
@@ -574,21 +574,54 @@ def verify_claims(claims, gathered_data, tolerance=0.02):
 
     return results
 
+GROQ_APPROVER_TPM_LIMIT = 8000          # Groq's on-demand-tier hard cap for openai/gpt-oss-20b (from the 413 body)
+GROQ_APPROVER_SAFETY_MARGIN = 1000      # stay this far under the hard cap — the token estimate is approximate
+GROQ_APPROVER_TOKEN_BUDGET = GROQ_APPROVER_TPM_LIMIT - GROQ_APPROVER_SAFETY_MARGIN  # 7000
+GROQ_APPROVER_MIN_PER_KEY_LIMIT = 150    # floor for summarize_for_prompt's per-key truncation
+GROQ_APPROVER_MAX_TOKENS = 3000
+GROQ_APPROVER_MIN_MAX_TOKENS = 800       # floor for the completion budget — last resort only
+
+
 def run_approver(gathered_data, draft):
     claims = extract_claims(draft)
     checked_claims = verify_claims(claims, gathered_data)
     unverified = [c for c in checked_claims if c["status"] == "unverified"]
 
-    prompt = APPROVER_PROMPT_TEMPLATE.format(
-        gathered_data=summarize_for_prompt(gathered_data),
-        draft=draft
-    )
+    per_key_limit = 1200
+    max_tokens = GROQ_APPROVER_MAX_TOKENS
+
+    while True:
+        prompt = APPROVER_PROMPT_TEMPLATE.format(
+            gathered_data=summarize_for_prompt(gathered_data, per_key_limit=per_key_limit),
+            draft=draft
+        )
+        prompt_tokens = estimate_tokens(prompt)
+        requested_tokens = prompt_tokens + max_tokens
+
+        if requested_tokens <= GROQ_APPROVER_TOKEN_BUDGET:
+            break
+
+        if per_key_limit > GROQ_APPROVER_MIN_PER_KEY_LIMIT:
+            per_key_limit = max(GROQ_APPROVER_MIN_PER_KEY_LIMIT, per_key_limit // 2)
+            print(f"Approver prompt estimated at ~{requested_tokens} tokens (budget "
+                  f"{GROQ_APPROVER_TOKEN_BUDGET}) — truncating gathered-data per-key limit to "
+                  f"{per_key_limit} chars and rebuilding.", flush=True)
+            continue
+
+        # Already at the truncation floor and still over budget — an unusually long draft,
+        # not gathered_data. Shave the completion budget rather than send a request Groq
+        # will reject outright.
+        max_tokens = max(GROQ_APPROVER_MIN_MAX_TOKENS, GROQ_APPROVER_TOKEN_BUDGET - prompt_tokens)
+        print(f"Approver prompt still ~{prompt_tokens} tokens at the truncation floor — "
+              f"reducing max_tokens to {max_tokens} to stay under the Groq TPM limit.", flush=True)
+        break
+
     response = call_groq_with_retry(
         client,
         model="openai/gpt-oss-20b",
         messages=[{"role": "user", "content": prompt}],
         temperature=0,
-        max_tokens=3000,
+        max_tokens=max_tokens,
         reasoning_effort="low"
     )
 
