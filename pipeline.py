@@ -56,11 +56,11 @@ Respond with exactly one word: SIMPLE or COMPLEX"""
 
     response = call_groq_with_retry(
 	client,
-        model="openai/gpt_oss-20b",
+        model="openai/gpt-oss-20b",
         messages=[{"role": "user", "content": prompt}],
         temperature=0
     )
-    result = response.content[0].text.strip().upper()
+    result = response.choices[0].message.content.strip().upper()
     return "COMPLEX" if "COMPLEX" in result else "SIMPLE"
 
 
@@ -370,6 +370,12 @@ flag exists solely because the ratio's denominator is too small to be meaningful
 its value nor its mere presence is evidence for either case. If a related point stands on its
 own unflagged metrics (e.g. operating margin, ROE), credit that instead — never the flagged
 ratio or the fact that it needed flagging.
+
+The `_note` field's discount applies only to the specific figure it's attached to — never
+extend it by inference to other, unflagged metrics derived from the same underlying number
+(e.g. a flagged P/E does not make EPS, ROE, or ROA "equally non-meaningful" — those stand on
+their own unless they carry their own `_note`). If the opposing case makes that extension,
+call it out as a misapplication of the flag, not a valid inference from it.
 
 Write the final analysis for Bernardo. Weigh both sides on their merits — including
 which rebuttals actually landed and which points went unanswered. Follow your standard
