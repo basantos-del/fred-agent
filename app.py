@@ -1,5 +1,4 @@
 import streamlit as st
-from itertools import groupby
 
 st.set_page_config(page_title="Fred", layout="wide")
 
@@ -10,6 +9,7 @@ from tools import (
     get_portfolio_context, log_portfolio_snapshot, get_portfolio_history,
     log_conversation_message, log_feedback, get_all_feedback,
     mark_feedback_addressed, log_coach_adoption, get_coach_log,
+    get_recent_conversations,
 )
 from eval import run_single_eval_case, GOLDEN_SET, log_eval_result, get_eval_history
 
@@ -21,35 +21,106 @@ def get_cached_portfolio_context():
     return get_portfolio_context()
 
 
-tab_chat, tab_dashboard, tab_compare, tab_coach = st.tabs(
-    ["Chat", "Dashboard", "Model Comparison", "Eval", "Coach"]
+@st.cache_data(ttl=60)
+def get_cached_recent_conversations():
+    return get_recent_conversations(limit_threads=10)
+
+
+def _relative_time(timestamp_str):
+    try:
+        ts = datetime.strptime(timestamp_str, "%Y-%m-%d %H:%M:%S")
+    except (ValueError, TypeError):
+        return ""
+    seconds = (datetime.now() - ts).total_seconds()
+    if seconds < 60:
+        return "just now"
+    if seconds < 3600:
+        return f"{int(seconds // 60)}m ago"
+    if seconds < 86400:
+        return f"{int(seconds // 3600)}h ago"
+    if seconds < 172800:
+        return "Yesterday"
+    return f"{int(seconds // 86400)}d ago"
+
+
+def _group_by_thread(rows):
+    grouped = {}
+    for row in rows:
+        grouped.setdefault(row["thread_id"], []).append(row)
+    return grouped
+
+
+if "messages" not in st.session_state:
+    st.session_state.messages = [
+        {"role": "system", "content": SYSTEM_PROMPT}
+    ]
+
+with st.sidebar:
+    st.markdown("### Fred")
+
+    if st.button("+ New chat"):
+        st.session_state.messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+        st.session_state.pop("pending_state", None)
+        st.session_state.pop("viewing_thread_id", None)
+        st.rerun()
+
+    st.divider()
+
+    current_id = st.session_state.get("current_thread_id", 0)
+    current_first_user_msg = next(
+        (m["content"] for m in st.session_state.messages
+         if isinstance(m, dict) and m.get("role") == "user" and m.get("thread_id") == current_id),
+        None
+    )
+    current_label = "New conversation"
+    if current_first_user_msg:
+        current_label = current_first_user_msg[:60] + ("..." if len(current_first_user_msg) > 60 else "")
+
+    is_viewing_current = st.session_state.get("viewing_thread_id") is None
+    if st.button(f"{'▸ ' if is_viewing_current else ''}{current_label}", key="sidebar_current_thread"):
+        st.session_state.pop("viewing_thread_id", None)
+        st.rerun()
+
+    st.caption("Previous")
+    try:
+        history_rows = get_cached_recent_conversations()
+    except Exception as e:
+        history_rows = []
+        st.caption(f"Couldn't load history: {e}")
+
+    history_by_thread = _group_by_thread(history_rows)
+    previous_thread_ids = [tid for tid in history_by_thread if tid != str(current_id)]
+    previous_thread_ids.reverse()
+
+    if not previous_thread_ids:
+        st.caption("No previous conversations yet.")
+
+    for tid in previous_thread_ids:
+        rows = history_by_thread[tid]
+        first_user_row = next((r for r in rows if r["role"] == "user"), None)
+        label = "Conversation"
+        if first_user_row:
+            label = first_user_row["content"][:60]
+            if len(first_user_row["content"]) > 60:
+                label += "..."
+        is_active = st.session_state.get("viewing_thread_id") == tid
+        if st.button(f"{'▸ ' if is_active else ''}{label}", key=f"sidebar_thread_{tid}"):
+            st.session_state["viewing_thread_id"] = tid
+            st.rerun()
+        ts_label = _relative_time(rows[0]["timestamp"]) if rows else ""
+        if ts_label:
+            st.caption(ts_label)
+
+
+tab_chat, tab_dashboard, tab_eval, tab_coach = st.tabs(
+    ["Chat", "Dashboard", "Eval", "Coach"]
 )
 
 with tab_chat:
-    if "messages" not in st.session_state:
-        st.session_state.messages = [
-            {"role": "system", "content": SYSTEM_PROMPT}
-        ]
-
-    if st.button("New conversation"):
-        st.session_state.messages = [
-            {"role": "system", "content": SYSTEM_PROMPT}
-        ]
-        st.session_state.pop("pending_state", None)
-        st.rerun()
-
-    st.write("**Quick questions:**")
-    col1, col2, col3 = st.columns(3)
-    quick_prompt = None
-    with col1:
-        if st.button("Portfolio review"):
-            quick_prompt = "Give me a full review of my current portfolio."
-    with col2:
-        if st.button("Check my top holding"):
-            quick_prompt = "Analyze my largest single holding."
-    with col3:
-        if st.button("Any concentration risk?"):
-            quick_prompt = "Do I have any concentration risk in my portfolio right now?"
+    active_thread_id = st.session_state.get("viewing_thread_id")
+    viewing_history = active_thread_id is not None
+    if not viewing_history:
+        active_thread_id = st.session_state.get("current_thread_id", 0)
 
     displayable = [
         m for m in st.session_state.messages
@@ -57,97 +128,112 @@ with tab_chat:
         and isinstance((m.get("content") if isinstance(m, dict) else m.content), str)
     ]
 
-    for thread_id, group in groupby(displayable, key=lambda m: m.get("thread_id", 0) if isinstance(m, dict) else 0):
-        group = list(group)
-        is_last_thread = (group[-1] is displayable[-1])
+    thread_messages = [m for m in displayable if str(m.get("thread_id", 0)) == str(active_thread_id)]
 
-        first_user_msg = next(
-            (m for m in group if (m["role"] if isinstance(m, dict) else m.role) == "user"),
-            None
-        )
-        if first_user_msg is not None:
-            label_text = first_user_msg["content"] if isinstance(first_user_msg, dict) else first_user_msg.content
-        else:
-            label_text = "Conversation"
+    if not thread_messages:
+        history_rows = get_cached_recent_conversations()
+        history_by_thread = _group_by_thread(history_rows)
+        rows = history_by_thread.get(str(active_thread_id), [])
+        thread_messages = [
+            {"role": r["role"], "content": r["content"], "thread_id": active_thread_id}
+            for r in rows if r["role"] in ("user", "assistant")
+        ]
 
-        if len(label_text) > 70:
-            label_text = label_text[:70] + "..."
+    is_empty_thread = len(thread_messages) == 0
+    quick_prompt = None
 
-        awaiting = is_last_thread and st.session_state.get("pending_state")
-        label = f"{'❓ ' if awaiting else ''}{label_text}"
+    if is_empty_thread and not viewing_history:
+        st.write("**Quick questions:**")
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            if st.button("Portfolio review"):
+                quick_prompt = "Give me a full review of my current portfolio."
+        with col2:
+            if st.button("Check my top holding"):
+                quick_prompt = "Analyze my largest single holding."
+        with col3:
+            if st.button("Any concentration risk?"):
+                quick_prompt = "Do I have any concentration risk in my portfolio right now?"
 
-        with st.expander(label, expanded=is_last_thread):
-            for msg in group:
-                role = msg["role"] if isinstance(msg, dict) else msg.role
-                content = msg.get("content") if isinstance(msg, dict) else msg.content
-                with st.chat_message(role):
-                    st.markdown(content)
+    for msg in thread_messages:
+        role = msg["role"]
+        content = msg["content"]
+        with st.chat_message(role):
+            st.markdown(content)
 
-                    if role == "assistant":
-                        with st.expander("📋 Copy this response"):
-                            st.code(content, language=None)
+            if role == "assistant":
+                with st.expander("📋 Copy this response"):
+                    st.code(content, language=None)
 
-                        with st.expander("💬 What was missing from this answer?"):
-                            fb_key = f"fb_{thread_id}_{id(msg)}"
-                            fb_text = st.text_area(
-                                "Feedback",
-                                key=fb_key,
-                                label_visibility="collapsed",
-                                placeholder="What angle would you have liked to see that Fred didn't cover?"
+                with st.expander("💬 What was missing from this answer?"):
+                    fb_key = f"fb_{active_thread_id}_{id(msg)}"
+                    fb_text = st.text_area(
+                        "Feedback",
+                        key=fb_key,
+                        label_visibility="collapsed",
+                        placeholder="What angle would you have liked to see that Fred didn't cover?"
+                    )
+                    if st.button("Submit feedback", key=f"submit_{fb_key}"):
+                        if fb_text.strip():
+                            q = next(
+                                (m["content"] for m in thread_messages if m["role"] == "user"),
+                                ""
                             )
-                            if st.button("Submit feedback", key=f"submit_{fb_key}"):
-                                if fb_text.strip():
-                                    q = next(
-                                        (m["content"] for m in group
-                                         if (m["role"] if isinstance(m, dict) else m.role) == "user"),
-                                        ""
-                                    )
-                                    if log_feedback(thread_id, q, fb_text):
-                                        st.success("Feedback saved — the Coach will review it.")
-                                    else:
-                                        st.error("Couldn't save feedback.")
+                            if log_feedback(active_thread_id, q, fb_text):
+                                st.success("Feedback saved — the Coach will review it.")
+                            else:
+                                st.error("Couldn't save feedback.")
 
-                    if isinstance(msg, dict) and msg.get("meta"):
-                        meta = msg["meta"]
-                        if meta.get("route"):
-                            st.caption(f"Route: {meta['route']}")
+            if isinstance(msg, dict) and msg.get("meta"):
+                meta = msg["meta"]
+                if meta.get("route"):
+                    st.caption(f"Route: {meta['route']}")
+
+                has_details = any(meta.get(k) for k in ("plan", "issues", "used_tools", "skipped_data_requests"))
+                if has_details:
+                    with st.expander("Details"):
                         if meta.get("plan"):
-                            with st.expander(f"Planner identified {len(meta['plan'])} analytical angle(s)"):
-                                for item in meta["plan"]:
-                                    st.write(f"**{item['angle']}**")
-                                    st.write(item["why_it_matters_for_this_question"])
+                            st.write(f"**Planner identified {len(meta['plan'])} analytical angle(s):**")
+                            for item in meta["plan"]:
+                                st.write(f"- **{item['angle']}** — {item['why_it_matters_for_this_question']}")
                         if meta.get("issues"):
-                            with st.expander("⚠️ Approver flagged issues"):
-                                for issue in meta["issues"]:
-                                    st.write(f"- {issue}")
+                            st.write("**⚠️ Approver flagged issues:**")
+                            for issue in meta["issues"]:
+                                st.write(f"- {issue}")
                         if meta.get("used_tools"):
-                            with st.expander(f"Fred used {len(meta['used_tools'])} tool call(s)"):
-                                for t in meta["used_tools"]:
-                                    st.write(f"- `{t}`")
+                            st.write(f"**Fred used {len(meta['used_tools'])} tool call(s):**")
+                            for t in meta["used_tools"]:
+                                st.write(f"- `{t}`")
                         if meta.get("skipped_data_requests"):
                             skipped = meta["skipped_data_requests"]
-                            with st.expander(f"⚠️ {len(skipped)} data request(s) dropped — unknown tool name"):
-                                for s in skipped:
-                                    st.write(f"- `{s['requested_tool']}` (for angle: *{s['angle']}*)")
-			    
+                            st.write(f"**⚠️ {len(skipped)} data request(s) dropped — unknown tool name:**")
+                            for s in skipped:
+                                st.write(f"- `{s['requested_tool']}` (for angle: *{s['angle']}*)")
 
-            if awaiting:
-                st.markdown("**Answer to Fred:**")
-                follow_up = st.text_input(
-                    "Your answer",
-                    key=f"followup_{thread_id}",
-                    label_visibility="collapsed",
-                    placeholder="Answer Fred's question here..."
-                )
-                if st.button("Send answer", key=f"send_followup_{thread_id}"):
-                    if follow_up.strip():
-                        st.session_state["submitted_prompt"] = follow_up
-                        st.rerun()
+    awaiting = (not viewing_history) and bool(st.session_state.get("pending_state"))
+
+    if awaiting:
+        st.markdown("**Answer to Fred:**")
+        follow_up = st.text_input(
+            "Your answer",
+            key=f"followup_{active_thread_id}",
+            label_visibility="collapsed",
+            placeholder="Answer Fred's question here..."
+        )
+        if st.button("Send answer", key=f"send_followup_{active_thread_id}"):
+            if follow_up.strip():
+                st.session_state["submitted_prompt"] = follow_up
+                st.rerun()
+
+    if viewing_history:
+        st.info("You're viewing a past conversation. Ask a new question below to start a fresh one.")
 
     typed_prompt = st.chat_input("Ask Fred something new...")
     prompt = st.session_state.pop("submitted_prompt", None) or typed_prompt or quick_prompt
 
     if prompt:
+        st.session_state.pop("viewing_thread_id", None)
+
         if st.session_state.get("pending_state"):
             thread_id = st.session_state.get("current_thread_id", 0)
         else:
@@ -189,7 +275,7 @@ with tab_chat:
             "plan": result.get("plan"),
             "issues": None if verdict.get("approved", True) else verdict.get("issues"),
             "used_tools": result.get("used_tools"),
-	    "skipped_data_requests": result.get("skipped_data_requests")
+            "skipped_data_requests": result.get("skipped_data_requests")
         }
 
         st.session_state.messages.append({
@@ -200,9 +286,10 @@ with tab_chat:
         })
         log_conversation_message(thread_id, "assistant", result["content"], result.get("route", ""))
 
+        get_cached_recent_conversations.clear()
         st.rerun()
 
-    if st.session_state.get("messages") and len(st.session_state["messages"]) > 1:
+    if thread_messages:
         st.components.v1.html(
             """
             <script>
