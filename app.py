@@ -215,14 +215,10 @@ with tab_chat:
 
             if role == "assistant":
                 copy_id = f"copy_{active_thread_id}_{id(msg)}"
+                safe_content_js = json.dumps(content).replace("</", "<\\/")
                 st.components.v1.html(
                     f"""
-                    <button id="{copy_id}" aria-label="Copy response to clipboard" onclick="
-                        navigator.clipboard.writeText({json.dumps(content)});
-                        const btn = document.getElementById('{copy_id}');
-                        btn.innerText = '✅ Copied';
-                        setTimeout(() => {{ btn.innerText = '📋 Copy response'; }}, 1500);
-                    " style="
+                    <button id="{copy_id}" aria-label="Copy response to clipboard" style="
                         background: #f0f2f6;
                         border: 1px solid #d3d6db;
                         border-radius: 6px;
@@ -232,6 +228,17 @@ with tab_chat:
                         cursor: pointer;
                         color: #31333f;
                     ">📋 Copy response</button>
+                    <script>
+                        (function() {{
+                            const btn = document.getElementById('{copy_id}');
+                            const text = {safe_content_js};
+                            btn.addEventListener('click', function() {{
+                                navigator.clipboard.writeText(text);
+                                btn.innerText = '✅ Copied';
+                                setTimeout(() => {{ btn.innerText = '📋 Copy response'; }}, 1500);
+                            }});
+                        }})();
+                    </script>
                     """,
                     height=36,
                 )
