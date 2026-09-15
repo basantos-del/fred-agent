@@ -1,5 +1,5 @@
-import json
 import re
+import json
 from agent import client, run_agent_turn, SYSTEM_PROMPT as FRED_SYSTEM_PROMPT
 from agent_claude import claude_client
 from tools import (
@@ -212,7 +212,7 @@ Respond with ONLY valid JSON in exactly this shape, no other text:
 def run_planner(question, gathered_data):
     prompt = PLANNER_PROMPT_TEMPLATE.format(
         question=question,
-        gathered_data=summarize_for_prompt(gathered_data)
+        gathered_data=summarize_for_prompt(gathered_data),
 	valid_tools=", ".join(sorted(tool_functions.keys()))
     )
     response = call_claude_with_retry(
