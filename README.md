@@ -78,9 +78,21 @@ streamlit run app.py
 
 ## Status
 
-Working: RAG retrieval + reranking, cross-model Approver check, deterministic claim
-verification, adversarial Bull/Bear debate with rebuttal round.
+## Status
 
-Open: table-aware chunking and per-claim source citations (rejected an early design,
-no replacement yet); the eval suite's claim-check logging needs a manual header column
-added to the Eval Runs sheet.
+Working: RAG retrieval + reranking, cross-model Approver check, deterministic claim
+verification, adversarial Bull/Bear debate with rebuttal round, Claude API retry/backoff
+on all direct call sites, Planner tool-name validation with skipped-request surfacing,
+Triage routed through Groq, dynamic-scale/K€-formatted portfolio dashboard, and a fix for
+`evaluate_recommendation()`'s missing-price bug plus a `pe_ratio_note` flag (with debate-prompt
+guardrails) for near-zero-EPS P/E values.
+
+Open: table-aware chunking and per-claim source citations (rejected an early design, no
+replacement yet); the eval suite's claim-check logging needs a manual header column added
+to the Eval Runs sheet; a further guardrail on the P/E-note handling (closing a
+"needing-a-flag-is-itself-evidence" loophole) is written but not yet committed or
+reverified; claim-extraction's derived/non-derived classification over-applies to some
+checkable stats (e.g. peer medians), causing under- rather than over-verification;
+recommendation track record/backtest, statistically honest scoring, and a cross-model
+determinism eval category are proposed (see `claude/fred-improvement-proposals-2026-09-15.md`)
+but not started.
