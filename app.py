@@ -27,23 +27,19 @@ def get_cached_portfolio_context():
 def get_cached_recent_conversations():
     return get_recent_conversations(limit_threads=10)
 
-
-def _relative_time(timestamp_str):
+def _bucket_label(timestamp_str):
     try:
         ts = datetime.strptime(timestamp_str, "%Y-%m-%d %H:%M:%S")
     except (ValueError, TypeError):
-        return ""
-    seconds = (datetime.now() - ts).total_seconds()
-    if seconds < 60:
-        return "just now"
-    if seconds < 3600:
-        return f"{int(seconds // 60)}m ago"
-    if seconds < 86400:
-        return f"{int(seconds // 3600)}h ago"
-    if seconds < 172800:
+        return "Older"
+    days = (datetime.now().date() - ts.date()).days
+    if days <= 0:
+        return "Today"
+    if days == 1:
         return "Yesterday"
-    return f"{int(seconds // 86400)}d ago"
-
+    if days <= 7:
+        return "Previous 7 Days"
+    return "Older"
 
 def _group_by_thread(rows):
     grouped = {}
@@ -127,11 +123,6 @@ with st.sidebar:
             st.session_state.pop("viewing_thread_id", None)
             st.rerun()
 
-    st.markdown(
-        "<div style='font-size:11px; font-weight:600; letter-spacing:0.04em; "
-        "text-transform:uppercase; color:#8a8d93; margin:18px 2px 4px 10px;'>Previous</div>",
-        unsafe_allow_html=True,
-    )
     try:
         history_rows = get_cached_recent_conversations()
     except Exception as e:
@@ -145,6 +136,7 @@ with st.sidebar:
     if not previous_thread_ids:
         st.caption("No previous conversations yet.")
 
+    last_bucket = None
     for tid in previous_thread_ids:
         rows = history_by_thread[tid]
         first_user_row = next((r for r in rows if r["role"] == "user"), None)
@@ -153,6 +145,16 @@ with st.sidebar:
             label = first_user_row["content"][:60]
             if len(first_user_row["content"]) > 60:
                 label += "..."
+
+        bucket = _bucket_label(rows[0]["timestamp"]) if rows else "Older"
+        if bucket != last_bucket:
+            st.markdown(
+                f"<div style='font-size:11px; font-weight:600; letter-spacing:0.04em; "
+                f"text-transform:uppercase; color:#8a8d93; margin:16px 2px 4px 10px;'>{bucket}</div>",
+                unsafe_allow_html=True,
+            )
+            last_bucket = bucket
+
         is_active = st.session_state.get("viewing_thread_id") == tid
         if st.button(
             label,
@@ -215,7 +217,7 @@ with tab_chat:
                 copy_id = f"copy_{active_thread_id}_{id(msg)}"
                 st.components.v1.html(
                     f"""
-                    <button id="{copy_id}" onclick="
+                    <button id="{copy_id}" aria-label="Copy response to clipboard" onclick="
                         navigator.clipboard.writeText({json.dumps(content)});
                         const btn = document.getElementById('{copy_id}');
                         btn.innerText = '✅ Copied';
@@ -234,8 +236,24 @@ with tab_chat:
                     height=36,
                 )
 
+                fb_key = f"fb_{active_thread_id}_{id(msg)}"
+                reaction_key = f"reaction_{fb_key}"
+                col_up, col_down, col_rest = st.columns([1, 1, 8])
+                with col_up:
+                    if st.button("👍", key=f"up_{fb_key}"):
+                        q = next((m["content"] for m in thread_messages if m["role"] == "user"), "")
+                        if log_feedback(active_thread_id, q, "👍 quick reaction (no detail given)"):
+                            st.session_state[reaction_key] = "up"
+                with col_down:
+                    if st.button("👎", key=f"down_{fb_key}"):
+                        q = next((m["content"] for m in thread_messages if m["role"] == "user"), "")
+                        if log_feedback(active_thread_id, q, "👎 quick reaction (no detail given)"):
+                            st.session_state[reaction_key] = "down"
+                if st.session_state.get(reaction_key):
+                    with col_rest:
+                        st.caption("Thanks — logged.")
+
                 with st.expander("💬 What was missing from this answer?"):
-                    fb_key = f"fb_{active_thread_id}_{id(msg)}"
                     fb_text = st.text_area(
                         "Feedback",
                         key=fb_key,
@@ -256,7 +274,12 @@ with tab_chat:
             if isinstance(msg, dict) and msg.get("meta"):
                 meta = msg["meta"]
                 if meta.get("route"):
-                    st.caption(f"Route: {meta['route']}")
+                    model_label = {
+                        "simple": "Groq",
+                        "complex": "Groq + Claude",
+                        "complex (resumed)": "Groq + Claude",
+                    }.get(meta["route"], "Groq + Claude")
+                    st.caption(f"Route: {meta['route']} · {model_label}")
 
                 has_details = any(meta.get(k) for k in ("plan", "issues", "used_tools", "skipped_data_requests"))
                 if has_details:
@@ -357,7 +380,9 @@ with tab_chat:
         get_cached_recent_conversations.clear()
         st.rerun()
 
-    if thread_messages:
+    scroll_signature = (str(active_thread_id), len(thread_messages))
+    if thread_messages and st.session_state.get("_last_scroll_signature") != scroll_signature:
+        st.session_state["_last_scroll_signature"] = scroll_signature
         st.components.v1.html(
             """
             <script>
