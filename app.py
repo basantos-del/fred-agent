@@ -234,8 +234,6 @@ with tab_chat:
         st.info("You're viewing a past conversation. Ask a new question below to start a fresh one.")
 
     typed_prompt = None if awaiting else st.chat_input("Ask Fred something new...")
-
-    typed_prompt = st.chat_input("Ask Fred something new...")
     prompt = st.session_state.pop("submitted_prompt", None) or typed_prompt or quick_prompt
 
     if prompt:
