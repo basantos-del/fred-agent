@@ -218,6 +218,15 @@ with tab_dashboard:
     import pandas as pd
     import altair as alt
 
+    def format_k_eur(value):
+        """Abbreviated euro format for dashboard display: 15234.56 -> '15.2K€'.
+        Falls back to a plain euro format under 1,000 where K-abbreviation reads oddly."""
+        if value is None:
+            return "€0"
+        if abs(value) >= 1000:
+            return f"{value / 1000:.1f}K€"
+        return f"€{value:,.0f}"
+
     st.subheader("Portfolio")
 
     context = get_cached_portfolio_context()
@@ -229,14 +238,14 @@ with tab_dashboard:
 
     history = get_cached_history(context["total_value_eur"])
 
-    st.metric("Total Value", f"€{context['total_value_eur']:,.2f}")
+    st.metric("Total Value", format_k_eur(context["total_value_eur"]))
 
     st.write("**Allocation by Exposure**")
     cols = st.columns(len(context["value_by_exposure"]))
     for col, (category, value) in zip(cols, context["value_by_exposure"].items()):
         pct = context["allocation_by_exposure"].get(category, 0)
         with col:
-            st.metric(category, f"€{value:,.0f}", f"{pct}%")
+            st.metric(category, format_k_eur(value), f"{pct}%")
 
     chart_df = pd.DataFrame({
         "category": list(context["value_by_exposure"].keys()),
@@ -252,50 +261,18 @@ with tab_dashboard:
     st.write("**Portfolio Value Over Time**")
     if len(history) >= 2:
         history_df = pd.DataFrame(history)
-        st.line_chart(history_df.set_index("date")["total_value_eur"])
+        min_val = history_df["total_value_eur"].min()
+        max_val = history_df["total_value_eur"].max()
+        padding = (max_val - min_val) * 0.1 or max_val * 0.05
+        y_domain = [max(0, min_val - padding), max_val + padding]
+        line = alt.Chart(history_df).mark_line(point=True).encode(
+            x=alt.X("date:T", title=None),
+            y=alt.Y("total_value_eur:Q", title="Total Value (€)", scale=alt.Scale(domain=y_domain)),
+            tooltip=[alt.Tooltip("date:T"), alt.Tooltip("total_value_eur:Q", format=",.0f", title="Value (€)")]
+        ).properties(height=350)
+        st.altair_chart(line, width='stretch')
     else:
         st.caption("History will build up as you use the dashboard over time (logs once per day).")
-
-    st.write("**Holdings**")
-    holdings_df = pd.DataFrame(context["holdings"]).sort_values("value_eur", ascending=False)
-    holdings_df["ticker"] = holdings_df["ticker"].fillna("—")
-    holdings_df["value_eur"] = holdings_df["value_eur"].apply(lambda v: f"€{v:,.2f}")
-    st.dataframe(holdings_df, width='stretch', hide_index=True)
-
-    st.subheader("Concentration Alerts")
-
-    alert_rows = []
-    for category, pct in context["allocation_by_exposure"].items():
-        if pct >= 40:
-            alert_rows.append({"Type": "Exposure Category", "Name": category, "% of Portfolio": pct})
-    for industry, pct in context["allocation_by_industry"].items():
-        if pct >= 40:
-            alert_rows.append({"Type": "Sector", "Name": industry, "% of Portfolio": pct})
-    if context["magnificent_7_pct"] >= 40:
-        alert_rows.append({"Type": "Magnificent 7", "Name": "Magnificent 7 stocks", "% of Portfolio": context["magnificent_7_pct"]})
-
-    if alert_rows:
-        st.warning(f"⚠️ {len(alert_rows)} concentration alert(s) — see table below.")
-        st.dataframe(pd.DataFrame(alert_rows), width='stretch', hide_index=True)
-    else:
-        st.success("✅ No concentration alerts — nothing currently exceeds the 40% threshold.")
-
-    st.subheader("Full Sector & Magnificent 7 Breakdown")
-
-    sector_df = pd.DataFrame(
-        [{"Sector": k, "% of Portfolio": v} for k, v in context["allocation_by_industry"].items()]
-    ).sort_values("% of Portfolio", ascending=False)
-    st.write("**Sector allocation (including fund look-through):**")
-    st.dataframe(sector_df, width='stretch', hide_index=True)
-
-    st.write(f"**Magnificent 7 total: {context['magnificent_7_pct']}% of portfolio**")
-    if context["magnificent_7_lookthrough_detail"]:
-        mag7_df = pd.DataFrame(context["magnificent_7_lookthrough_detail"])
-        mag7_df = mag7_df.rename(columns={"holding": "Holding", "fund": "Via Fund", "value_eur": "Value (EUR)"})
-        mag7_df["Value (EUR)"] = mag7_df["Value (EUR)"].apply(lambda v: f"€{v:,.2f}")
-        st.dataframe(mag7_df, width='stretch', hide_index=True)
-    else:
-        st.caption("No Magnificent 7 exposure detected via fund look-through.")
 
 with tab_compare:
     st.subheader("Compare Groq (gpt-oss-20b) vs Claude")
