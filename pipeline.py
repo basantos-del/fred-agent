@@ -54,12 +54,11 @@ Question: {question}
 
 Respond with exactly one word: SIMPLE or COMPLEX"""
 
-    response = call_claude_with_retry(
-	claude_client,
-        model="claude-haiku-4-5-20251001",
-        max_tokens=10,
+    response = call_groq_with_retry(
+	client,
+        model="openai/gpt_oss-20b",
         messages=[{"role": "user", "content": prompt}],
-        extra_body={"temperature": 0}
+        temperature=0
     )
     result = response.content[0].text.strip().upper()
     return "COMPLEX" if "COMPLEX" in result else "SIMPLE"
