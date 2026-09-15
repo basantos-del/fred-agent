@@ -546,8 +546,15 @@ def evaluate_recommendation(ticker):
         print(f"Warning: get_exchange_rate failed inside evaluate_recommendation: {e}", flush=True)
         exchange_rate = None
 
+    try:
+        price = get_stock_price(ticker)
+    except Exception as e:
+        print(f"Warning: get_stock_price failed inside evaluate_recommendation: {e}", flush=True)
+        price = None
+
     return {
         "ticker": ticker,
+        "price": price,
         "ratios": get_key_ratios(ticker),
         "peer_comparison": get_peer_average_ratios(ticker),
         "portfolio_context": get_portfolio_context(),
@@ -765,6 +772,7 @@ tool_functions = {
 }
 
 #tools schema
+
 tools = [
     {
         "type": "function",
@@ -784,7 +792,7 @@ tools = [
     "type": "function",
     "function": {
         "name": "evaluate_recommendation",
-        "description": "Get everything needed to evaluate an investment recommendation for a ticker: its own valuation/profitability/leverage/yield/risk ratios, the same ratios averaged across its closest peers for sector-relative comparison, and Bernardo's current portfolio context (allocation by asset class and full holdings list) for diversification awareness",
+        "description": "Get everything needed to evaluate an investment recommendation for a ticker: its current price, its own valuation/profitability/leverage/yield/risk ratios (including 52-week high/low), the same ratios averaged across its closest peers for sector-relative comparison, and Bernardo's current portfolio context (allocation by asset class and full holdings list) for diversification awareness",
         "parameters": {
             "type": "object",
             "properties": {
