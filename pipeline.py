@@ -254,7 +254,12 @@ than manufacturing one — your credibility in the debate depends on not overrea
 If a figure in the data below carries an accompanying `_note` field (e.g. `pe_ratio_note`),
 that field is flagging the number as not economically meaningful — do not cite it as
 decisive evidence for your case. You may still mention it, but only alongside its caveat,
-never as a standalone data point.
+never as a standalone data point. Do not reinterpret the presence of the flag itself as
+evidence either — e.g. arguing that a metric "needing" a flag (while a peer's doesn't) is
+itself informative about the company. The flag exists only because the ratio's denominator
+is too small to produce a meaningful multiple; it adds nothing beyond what the other,
+unflagged metrics already show. If you want to make a related point, make it from those
+unflagged metrics directly, not from the flagged ratio or the fact that it was flagged.
 
 Question: {question}
 
@@ -281,7 +286,13 @@ If a figure in the data below carries an accompanying `_note` field (e.g. `pe_ra
 that field is flagging the number as not economically meaningful — do not cite it as
 decisive evidence for your case, even if the direction of the flag happens to feel
 bear-friendly (e.g. an extreme P/E "confirming" overvaluation). You may still mention it,
-but only alongside its caveat, never as a standalone data point.
+but only alongside its caveat, never as a standalone data point. Do not reinterpret the
+presence of the flag itself as evidence either — e.g. arguing that a metric "needing" a
+flag (while a peer's doesn't) is itself a red flag about the company. The flag exists only
+because the ratio's denominator is too small to produce a meaningful multiple; it adds
+nothing beyond what the other, unflagged metrics already show. If you want to make a
+related point (like weak profitability), make it from those unflagged metrics directly
+(operating margin, ROE, ROA), not from the flagged ratio or the fact that it was flagged.
 
 Question: {question}
 
@@ -308,7 +319,10 @@ is weighing this next and needs to know which points actually hold up.
 If the opposing case cites a figure that carries an accompanying `_note` field in the data
 below (flagging it as not economically meaningful), that is itself a legitimate and
 sufficient rebuttal point — call it out directly rather than debating the number on its
-own terms.
+own terms. Watch also for the opposing case reframing a flagged figure instead of citing
+it outright — e.g. treating the fact that a ratio needed a flag (while a peer's didn't) as
+if that itself were evidence. That is the same move by one step of indirection; call it
+out the same way.
 
 Data available:
 {gathered_data}"""
@@ -349,7 +363,13 @@ Separately: if either side's argument rests on a figure that carries an accompan
 field in the data below (e.g. `pe_ratio_note` flagging a P/E as not economically meaningful
 due to near-zero EPS), do not credit that figure as decisive evidence for either case, even
 if neither side flagged it during the debate — discount it yourself and say explicitly that
-you're doing so.
+you're doing so. This applies equally to a reframed version of the same move — e.g. either
+side arguing that a metric "needing" a flag (while a peer's doesn't) is itself meaningful,
+or treating that framing as an open question one side "never reconciled." It isn't open: the
+flag exists solely because the ratio's denominator is too small to be meaningful, and neither
+its value nor its mere presence is evidence for either case. If a related point stands on its
+own unflagged metrics (e.g. operating margin, ROE), credit that instead — never the flagged
+ratio or the fact that it needed flagging.
 
 Write the final analysis for Bernardo. Weigh both sides on their merits — including
 which rebuttals actually landed and which points went unanswered. Follow your standard
