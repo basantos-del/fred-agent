@@ -160,8 +160,21 @@ def get_key_ratios(ticker):
         print(f"Warning: no metrics returned for {ticker}. Raw response: {data}")
         metrics = {}
 
+    pe_ratio = metrics.get("peBasicExclExtraTTM")
+    eps_ttm = metrics.get("epsBasicExclExtraItemsTTM")
+
+    pe_ratio_note = None
+    if pe_ratio is not None and pe_ratio > 100:
+        eps_text = f"${eps_ttm:.2f}" if eps_ttm is not None else "near zero"
+        pe_ratio_note = (
+            f"P/E of {pe_ratio:.0f}x reflects near-zero trailing EPS ({eps_text}), not a "
+            f"meaningful valuation multiple — treat as a data-quality flag, not a signal."
+        )
+
     return {
-        "pe_ratio": metrics.get("peBasicExclExtraTTM"),
+        "pe_ratio": pe_ratio,
+        "pe_ratio_note": pe_ratio_note,
+        "eps_ttm": eps_ttm,
         "pb_ratio": metrics.get("pbQuarterly"),
         "ps_ratio": metrics.get("psAnnual"),
         "roe": metrics.get("roeTTM"),
@@ -866,7 +879,7 @@ tools = [
         "type": "function",
         "function": {
             "name": "get_key_ratios",
-            "description": "Get key valuation, profitability, and leverage ratios for a company: P/E, P/B, P/S, ROE, ROA, debt-to-equity, current ratio, gross margin, operating margin, beta, and 52-week high/low",
+	    "description": "Get key valuation, profitability, and leverage ratios for a company: P/E (with trailing EPS and a data-quality note when the P/E isn't economically meaningful), P/B, P/S, ROE, ROA, debt-to-equity, current ratio, gross margin, operating margin, beta, and 52-week high/low",
             "parameters": {
                 "type": "object",
                 "properties": {
