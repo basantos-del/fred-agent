@@ -1,4 +1,5 @@
 import streamlit as st
+import uuid
 
 st.set_page_config(page_title="Fred", layout="wide")
 
@@ -49,39 +50,55 @@ def _group_by_thread(rows):
         grouped.setdefault(row["thread_id"], []).append(row)
     return grouped
 
-
 if "messages" not in st.session_state:
     st.session_state.messages = [
         {"role": "system", "content": SYSTEM_PROMPT}
     ]
+st.session_state.setdefault("current_thread_id", uuid.uuid4().hex[:12])
 
 with st.sidebar:
     st.markdown("### Fred")
 
     if st.button("+ New chat"):
         st.session_state.messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+        st.session_state["current_thread_id"] = uuid.uuid4().hex[:12]
         st.session_state.pop("pending_state", None)
         st.session_state.pop("viewing_thread_id", None)
         st.rerun()
 
     st.divider()
 
-    current_id = st.session_state.get("current_thread_id", 0)
+    current_id = st.session_state.get("current_thread_id")
     current_first_user_msg = next(
         (m["content"] for m in st.session_state.messages
          if isinstance(m, dict) and m.get("role") == "user" and m.get("thread_id") == current_id),
         None
     )
-    current_label = "New conversation"
-    if current_first_user_msg:
-        current_label = current_first_user_msg[:60] + ("..." if len(current_first_user_msg) > 60 else "")
-
     is_viewing_current = st.session_state.get("viewing_thread_id") is None
-    if st.button(f"{'▸ ' if is_viewing_current else ''}{current_label}", key="sidebar_current_thread"):
-        st.session_state.pop("viewing_thread_id", None)
-        st.rerun()
 
-    st.caption("Previous")
+    if current_first_user_msg or not is_viewing_current:
+        current_label = "Current chat"
+        if current_first_user_msg:
+            current_label = current_first_user_msg[:60] + ("..." if len(current_first_user_msg) > 60 else "")
+        if st.button(f"{'▸ ' if is_viewing_current else ''}{current_label}", key="sidebar_current_thread"):
+            st.session_state.pop("viewing_thread_id", None)
+            st.rerun()
+
+    st.caption("Previo    current_id = st.session_state.get("current_thread_id")
+    current_first_user_msg = next(
+        (m["content"] for m in st.session_state.messages
+         if isinstance(m, dict) and m.get("role") == "user" and m.get("thread_id") == current_id),
+        None
+    )
+    is_viewing_current = st.session_state.get("viewing_thread_id") is None
+
+    if current_first_user_msg or not is_viewing_current:
+        current_label = "Current chat"
+        if current_first_user_msg:
+            current_label = current_first_user_msg[:60] + ("..." if len(current_first_user_msg) > 60 else "")
+        if st.button(f"{'▸ ' if is_viewing_current else ''}{current_label}", key="sidebar_current_thread"):
+            st.session_state.pop("viewing_thread_id", None)
+            st.rerun()us")
     try:
         history_rows = get_cached_recent_conversations()
     except Exception as e:
@@ -90,7 +107,21 @@ with st.sidebar:
 
     history_by_thread = _group_by_thread(history_rows)
     previous_thread_ids = [tid for tid in history_by_thread if tid != str(current_id)]
-    previous_thread_ids.reverse()
+    previous_thread_id    current_id = st.session_state.get("current_thread_id")
+    current_first_user_msg = next(
+        (m["content"] for m in st.session_state.messages
+         if isinstance(m, dict) and m.get("role") == "user" and m.get("thread_id") == current_id),
+        None
+    )
+    is_viewing_current = st.session_state.get("viewing_thread_id") is None
+
+    if current_first_user_msg or not is_viewing_current:
+        current_label = "Current chat"
+        if current_first_user_msg:
+            current_label = current_first_user_msg[:60] + ("..." if len(current_first_user_msg) > 60 else "")
+        if st.button(f"{'▸ ' if is_viewing_current else ''}{current_label}", key="sidebar_current_thread"):
+            st.session_state.pop("viewing_thread_id", None)
+            st.rerun()s.reverse()
 
     if not previous_thread_ids:
         st.caption("No previous conversations yet.")
@@ -234,11 +265,9 @@ with tab_chat:
     if prompt:
         st.session_state.pop("viewing_thread_id", None)
 
-        if st.session_state.get("pending_state"):
-            thread_id = st.session_state.get("current_thread_id", 0)
-        else:
-            thread_id = st.session_state.get("current_thread_id", 0) + 1
-            st.session_state["current_thread_id"] = thread_id
+        if not st.session_state.get("pending_state"):
+            st.session_state["current_thread_id"] = uuid.uuid4().hex[:12]
+        thread_id = st.session_state["current_thread_id"]
 
         st.session_state.messages.append({"role": "user", "content": prompt, "thread_id": thread_id})
         log_conversation_message(thread_id, "user", prompt)
