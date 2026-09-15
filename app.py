@@ -542,19 +542,31 @@ with tab_dashboard:
 
         st.write("**API Calls per Day**")
         calls_chart = alt.Chart(daily).mark_bar().encode(
-            x="date:O", y="calls:Q", color="provider:N", tooltip=["date", "provider", "calls"]
+            x=alt.X("date:O", title="Date"),
+            xOffset="provider:N",
+            y=alt.Y("calls:Q", title="Calls"),
+            color="provider:N",
+            tooltip=["date", "provider", "calls"]
         ).properties(height=250)
         st.altair_chart(calls_chart, width='stretch')
 
         st.write("**Output Tokens per Day**")
         tokens_chart = alt.Chart(daily).mark_bar().encode(
-            x="date:O", y="output_tokens:Q", color="provider:N", tooltip=["date", "provider", "output_tokens"]
+            x=alt.X("date:O", title="Date"),
+            xOffset="provider:N",
+            y=alt.Y("output_tokens:Q", title="Output Tokens"),
+            color="provider:N",
+            tooltip=["date", "provider", "output_tokens"]
         ).properties(height=250)
         st.altair_chart(tokens_chart, width='stretch')
 
         st.write("**Estimated Cost per Day (€)**")
         cost_chart = alt.Chart(daily).mark_bar().encode(
-            x="date:O", y="cost_eur:Q", color="provider:N", tooltip=["date", "provider", "cost_eur"]
+            x=alt.X("date:O", title="Date"),
+            xOffset="provider:N",
+            y=alt.Y("cost_eur:Q", title="Cost (€)"),
+            color="provider:N",
+            tooltip=["date", "provider", "cost_eur"]
         ).properties(height=250)
         st.altair_chart(cost_chart, width='stretch')
 
