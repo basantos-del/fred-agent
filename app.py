@@ -12,6 +12,7 @@ from tools import (
     log_conversation_message, log_feedback, get_all_feedback,
     mark_feedback_addressed, log_coach_adoption, get_coach_log,
     get_recent_conversations,
+    get_api_usage_history,
 )
 from eval import run_single_eval_case, GOLDEN_SET, log_eval_result, get_eval_history
 
@@ -504,6 +505,58 @@ with tab_dashboard:
         st.dataframe(mag7_df, width='stretch', hide_index=True)
     else:
         st.caption("No Magnificent 7 exposure detected via fund look-through.")
+
+    st.divider()
+    st.subheader("API Usage & Cost")
+    st.caption(
+        "Groq is on the free tier — Groq cost below is shadow-priced (what it would "
+        "cost at Groq's published paid rate), not actual spend."
+    )
+
+    @st.cache_data(ttl=300)
+    def get_cached_api_usage_history():
+        return get_api_usage_history()
+
+    usage_history = get_cached_api_usage_history()
+
+    if not usage_history:
+        st.caption("No API usage logged yet — this builds up as you use Fred.")
+    else:
+        usage_df = pd.DataFrame(usage_history)
+        today_str = datetime.now().strftime("%Y-%m-%d")
+        today_df = usage_df[usage_df["date"] == today_str]
+
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("API calls today", len(today_df))
+        with col2:
+            st.metric("Output tokens today", f"{today_df['output_tokens'].sum():,.0f}")
+        with col3:
+            st.metric("Est. cost today", f"€{today_df['cost_eur'].sum():,.4f}")
+
+        daily = usage_df.groupby(["date", "provider"]).agg(
+            calls=("provider", "count"),
+            output_tokens=("output_tokens", "sum"),
+            cost_eur=("cost_eur", "sum")
+        ).reset_index()
+
+        st.write("**API Calls per Day**")
+        calls_chart = alt.Chart(daily).mark_bar().encode(
+            x="date:O", y="calls:Q", color="provider:N", tooltip=["date", "provider", "calls"]
+        ).properties(height=250)
+        st.altair_chart(calls_chart, width='stretch')
+
+        st.write("**Output Tokens per Day**")
+        tokens_chart = alt.Chart(daily).mark_bar().encode(
+            x="date:O", y="output_tokens:Q", color="provider:N", tooltip=["date", "provider", "output_tokens"]
+        ).properties(height=250)
+        st.altair_chart(tokens_chart, width='stretch')
+
+        st.write("**Estimated Cost per Day (€)**")
+        cost_chart = alt.Chart(daily).mark_bar().encode(
+            x="date:O", y="cost_eur:Q", color="provider:N", tooltip=["date", "provider", "cost_eur"]
+        ).properties(height=250)
+        st.altair_chart(cost_chart, width='stretch')
 
 with tab_eval:
     st.subheader("Eval Suite")

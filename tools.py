@@ -36,6 +36,105 @@ SEC_HEADERS = {"User-Agent": "Bernardo Santos albasantos.bernardo@gmail.com"}
 MAGNIFICENT_7 = {"AAPL", "MSFT", "GOOGL", "GOOG", "AMZN", "META", "NVDA", "TSLA"}
 MAGNIFICENT_7_NAMES = ["apple", "microsoft", "alphabet", "google", "amazon", "meta", "facebook", "nvidia", "tesla"]
 
+# --- API usage/cost tracking ---
+
+# USD per 1M tokens. Source: Anthropic pricing docs + Groq pricing page, checked 2026-09-15.
+# Groq is free-tier for us right now — these numbers are SHADOW pricing (what it would
+# cost at Groq's published paid rate), not actual spend.
+API_PRICING = {
+    "openai/gpt-oss-20b": {"input": 0.075, "output": 0.30},
+    "claude-sonnet-4-5": {"input": 3.0, "output": 15.0},
+}
+
+_fx_cache = {"date": None, "rate": None}
+
+
+def _get_cached_usd_to_eur_rate():
+    """Fetches USD->EUR once per calendar day and reuses it, instead of hitting
+    get_exchange_rate on every single logged API call (a complex query can trigger
+    up to ~9 Claude calls, and this func runs on every one of them)."""
+    today_str = datetime.now().strftime("%Y-%m-%d")
+    if _fx_cache["date"] == today_str and _fx_cache["rate"] is not None:
+        return _fx_cache["rate"]
+    try:
+        rate = get_exchange_rate("USD", "EUR")
+        _fx_cache["date"] = today_str
+        _fx_cache["rate"] = rate
+        return rate
+    except Exception as e:
+        print(f"Failed to refresh USD->EUR rate for API cost logging: {e}", flush=True)
+        return _fx_cache["rate"]  # stale-but-cached, or None — never raise from here
+
+
+def compute_api_cost(model, input_tokens, output_tokens):
+    pricing = API_PRICING.get(model)
+    if pricing is None:
+        print(f"Warning: no pricing entry for model '{model}' — cost not tracked for this call.", flush=True)
+        return None
+    cost = (input_tokens / 1_000_000) * pricing["input"] + (output_tokens / 1_000_000) * pricing["output"]
+    return round(cost, 6)
+
+
+def get_api_usage_worksheet():
+    return sheet.worksheet("API Usage")
+
+
+def log_api_call(provider, model, input_tokens, output_tokens):
+    """Best-effort logging — must never raise into the calling pipeline. A Sheets
+    hiccup should degrade silently (usage just doesn't get logged that once), not
+    break Fred's actual answer."""
+    try:
+        cost_usd = compute_api_cost(model, input_tokens, output_tokens)
+        rate = _get_cached_usd_to_eur_rate()
+        cost_eur = round(cost_usd * rate, 6) if (cost_usd is not None and rate is not None) else None
+
+        ws = get_api_usage_worksheet()
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        ws.append_row([
+            timestamp, provider, model, str(input_tokens), str(output_tokens),
+            str(cost_usd) if cost_usd is not None else "",
+            str(cost_eur) if cost_eur is not None else "",
+        ])
+    except Exception as e:
+        print(f"Failed to log API usage: {e}", flush=True)
+
+
+def _log_usage_if_present(provider, model, usage_obj, input_field, output_field):
+    if usage_obj is None:
+        return
+    input_tokens = getattr(usage_obj, input_field, None)
+    output_tokens = getattr(usage_obj, output_field, None)
+    if input_tokens is None or output_tokens is None:
+        return
+    log_api_call(provider, model, input_tokens, output_tokens)
+
+
+def get_api_usage_history():
+    try:
+        ws = get_api_usage_worksheet()
+        values = ws.get_all_values()
+        history = []
+        for row in values[1:]:
+            if not row or not row[0]:
+                continue
+            try:
+                history.append({
+                    "timestamp": row[0],
+                    "date": row[0].split(" ")[0],
+                    "provider": row[1],
+                    "model": row[2],
+                    "input_tokens": int(row[3]) if row[3] else 0,
+                    "output_tokens": int(row[4]) if row[4] else 0,
+                    "cost_usd": float(row[5]) if len(row) > 5 and row[5] else 0.0,
+                    "cost_eur": float(row[6]) if len(row) > 6 and row[6] else 0.0,
+                })
+            except (ValueError, IndexError):
+                continue
+        return history
+    except Exception as e:
+        print(f"Failed to read API usage history: {e}", flush=True)
+        return []
+
 def get_sentiment(headline, summary):
     prompt = f"""Headline: {headline}
 Summary: {summary}
@@ -581,11 +680,14 @@ def call_claude_with_retry(client, max_retries=5, **kwargs):
     attempt = 0
     while True:
         try:
-            return client.messages.create(**kwargs)
+            response = client.messages.create(**kwargs)
+            _log_usage_if_present("Claude", kwargs.get("model"), getattr(response, "usage", None),
+                                   "input_tokens", "output_tokens")
+            return response
         except ClaudeRateLimitError as e:
-            attempt += 1
+            attempt += 1  
             if attempt > max_retries:
-                raise
+                raise 
             retry_after = None
             try:
                 retry_after = float(e.response.headers.get("retry-after"))
@@ -616,7 +718,10 @@ def call_groq_with_retry(client, max_malformed_retries=3, **kwargs):
 
     while True:
         try:
-            return client.chat.completions.create(**kwargs)
+            response = client.chat.completions.create(**kwargs)
+            _log_usage_if_present("Groq", kwargs.get("model"), getattr(response, "usage", None),
+                                   "prompt_tokens", "completion_tokens")
+            return response
         except RateLimitError as e:
             wait_time = 30
             match = re.search(r"try again in (?:(\d+)m)?([\d.]+)s", str(e))
