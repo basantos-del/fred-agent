@@ -214,7 +214,8 @@ with tab_chat:
                             for s in skipped:
                                 st.write(f"- `{s['requested_tool']}` (for angle: *{s['angle']}*)")
 
-    awaiting = (not viewing_history) and bool(st.session_state.get("pending_state"))
+    resolving_followup = bool(st.session_state.get("submitted_prompt"))
+    awaiting = (not viewing_history) and bool(st.session_state.get("pending_state")) and not resolving_followup
 
     if awaiting:
         st.markdown("**Answer to Fred:**")
@@ -231,6 +232,8 @@ with tab_chat:
 
     if viewing_history:
         st.info("You're viewing a past conversation. Ask a new question below to start a fresh one.")
+
+    typed_prompt = None if awaiting else st.chat_input("Ask Fred something new...")
 
     typed_prompt = st.chat_input("Ask Fred something new...")
     prompt = st.session_state.pop("submitted_prompt", None) or typed_prompt or quick_prompt
