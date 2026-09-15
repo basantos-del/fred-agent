@@ -1,5 +1,6 @@
 import streamlit as st
 import uuid
+import json
 
 st.set_page_config(page_title="Fred", layout="wide")
 
@@ -166,8 +167,27 @@ with tab_chat:
             st.markdown(content)
 
             if role == "assistant":
-                with st.expander("📋 Copy this response"):
-                    st.code(content, language=None)
+                copy_id = f"copy_{active_thread_id}_{id(msg)}"
+                st.components.v1.html(
+                    f"""
+                    <button id="{copy_id}" onclick="
+                        navigator.clipboard.writeText({json.dumps(content)});
+                        const btn = document.getElementById('{copy_id}');
+                        btn.innerText = '✅ Copied';
+                        setTimeout(() => {{ btn.innerText = '📋 Copy response'; }}, 1500);
+                    " style="
+                        background: #f0f2f6;
+                        border: 1px solid #d3d6db;
+                        border-radius: 6px;
+                        padding: 4px 12px;
+                        font-size: 13px;
+                        font-family: 'Source Sans Pro', sans-serif;
+                        cursor: pointer;
+                        color: #31333f;
+                    ">📋 Copy response</button>
+                    """,
+                    height=36,
+                )
 
                 with st.expander("💬 What was missing from this answer?"):
                     fb_key = f"fb_{active_thread_id}_{id(msg)}"
